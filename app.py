@@ -1,365 +1,184 @@
 import streamlit as st
-import pandas as pd
-import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
-from PIL import Image
-import requests
+import speech_recognition as sr
 from io import BytesIO
-from sklearn.metrics.pairwise import cosine_similarity
-import re
-import base64
-import streamlit.components.v1 as components
+import time
 
-# ==============================================================================
-# 🔗 LINK CSV GOOGLE SHEETS
-# ==============================================================================
-DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTihRlqwwhyxJSpVMW4WH15XM_rx2yLGfXCjbOn-SbEetgs5vRn8OWEFqO_ov-BgMwP/pub?output=csv"
-# ==============================================================================
+# --- Konfigurasi Halaman ---
+st.set_page_config(page_title="Katalog Inventory Terpadu v2.0", page_icon="📦")
 
-st.set_page_config(page_title="Katalog Komponen", layout="wide")
+# --- Database Mock (Ganti dengan DB aslimu nanti) ---
+DB = [
+    {"id": 1, "nama": "Resistor 10k Ohm", "tipe": "Pasif", "stok": 150},
+    {"id": 2, "nama": "Kapasitor 100uF", "tipe": "Pasif", "stok": 200},
+    {"id": 3, "nama": "Arduino Uno R3", "tipe": "Mikrokontroler", "stok": 25},
+    {"id": 4, "nama": "Sensor Suhu DHT11", "tipe": "Sensor", "stok": 50},
+    {"id": 5, "nama": "Kabel Jumper Male-Female", "tipe": "Aksesoris", "stok": 500},
+]
 
-# --- 1. OPTIMASI CACHE MODEL & PREPROCESSING ---
-@st.cache_resource
-def load_feature_extractor():
-    weights = models.ResNet18_Weights.DEFAULT
-    model = models.resnet18(weights=weights)
-    model = torch.nn.Sequential(*list(model.children())[:-1])
-    model.eval()
-    return model
+# --- Inisialisasi Session State (Sangat Penting) ---
+# State untuk menyimpan hasil pencarian agar tidak hilang saat rerun
+if 'results' not in st.session_state:
+    st.session_state.results = None
 
-model = load_feature_extractor()
+# State untuk menyimpan teks dari VN agar bisa diisi ke text_input
+if 'query_text' not in st.session_state:
+    st.session_state.query_text = ""
 
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-])
+# State untuk menyimpan gambar pencarian
+if 'search_image_file' not in st.session_state:
+    st.session_state.search_image_file = None
 
-# --- 2. OPTIMASI CACHE DATABASE (Hanya diunduh ulang tiap 5 menit) ---
-@st.cache_data(ttl=300, show_spinner=False)
-def load_database(url):
-    df_raw = pd.read_csv(url)
-    df_clean = df_raw.fillna('')
-    return df_raw, df_clean
 
-# --- 3. OPTIMASI CACHE UNDUH GAMBAR ---
-def get_drive_direct_url(drive_url):
-    file_id_match = re.search(r'(?:/d/|id=)([a-zA-Z0-9_-]+)', str(drive_url))
-    if file_id_match:
-        file_id = file_id_match.group(1)
-        return f'https://lh3.googleusercontent.com/d/{file_id}'
-    return drive_url
+# --- Fungsi Logika Pencarian Terpadu ---
+def perform_unified_search(img_file, text_query):
+    """
+    Fungsi tunggal untuk menjalankan pencarian.
+    Prioritas: (1) Gambar > (2) Teks (Manual/VN)
+    """
+    # Beri indikasi pencarian sedang berjalan
+    with st.spinner("📦 Menghubungkan ke gudang..."):
+        time.sleep(1) # Simulasi delay jaringan (bisa dihapus)
+        results = []
 
-@st.cache_data(show_spinner=False)
-def load_image_from_url(url):
+        if img_file:
+            # --- Alur Prioritas 1: Pencarian Gambar ---
+            st.success(f"🔍 Mencari suku cadang yang serupa dengan gambar: '{img_file.name}'")
+            # LOGIKA PENCARIAN GAMBAR ASLI DIMASUKKAN DI SINI
+            # (Untuk sekarang, tampilkan data dummy)
+            results = [DB[0], DB[1]] # Contoh: Resistor dan Kapasitor
+
+        elif text_query:
+            # --- Alur Prioritas 2: Pencarian Teks/VN ---
+            st.success(f"🔍 Mencari kata kunci: '{text_query}'")
+            # LOGIKA PENCARIAN TEKS ASLI DIMASUKKAN DI SINI
+            query_lower = text_query.lower()
+            results = [item for item in DB if query_lower in item['nama'].lower()]
+
+        else:
+            # --- Tidak Ada Input ---
+            st.warning("⚠️ Mohon ketik kata kunci, gunakan VN, atau unggah gambar terlebih dahulu.")
+            st.session_state.results = None
+            return
+
+        # Simpan hasil ke session state
+        st.session_state.results = results
+
+
+# --- Fungsi Perbaikan Logika VN ---
+def process_voice_search():
+    """
+    Fungsi untuk merekam suara, mentranskripsikannya ke teks,
+    dan langsung mengisinya ke dalam kotak pencarian.
+    """
+    r = sr.Recognizer()
     try:
-        direct_url = get_drive_direct_url(url)
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(direct_url, headers=headers, timeout=5)
-        if response.status_code == 200:
-            return Image.open(BytesIO(response.content))
-    except Exception:
-        pass
-    return None
-
-def extract_features(image):
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
-    img_t = transform(image).unsqueeze(0)
-    with torch.no_grad():
-        features = model(img_t)
-    return features.squeeze().numpy()
-
-# --- 4. OPTIMASI CACHE FITUR GAMBAR AI (Sangat mempercepat pencarian foto) ---
-@st.cache_data(show_spinner=False)
-def get_cached_image_features(url):
-    img = load_image_from_url(url)
-    if img:
-        return extract_features(img)
-    return None
-
-def transcribe_audio_bytes(audio_bytes):
-    try:
-        import speech_recognition as sr
-        recognizer = sr.Recognizer()
-        audio_file = BytesIO(audio_bytes)
-        with sr.AudioFile(audio_file) as source:
-            audio_data = recognizer.record(source)
-            text = recognizer.recognize_google(audio_data, language="id-ID")
-            return text
-    except Exception:
-        return None
-
-def normalize_text(text):
-    if pd.isna(text):
-        return ""
-    return re.sub(r'[\s\-]+', '', str(text)).lower()
-
-# --- STATE RESET PENCARIAN ---
-if "search_input" not in st.session_state:
-    st.session_state["search_input"] = ""
-if "voice_query" not in st.session_state:
-    st.session_state["voice_query"] = ""
-
-def reset_search():
-    st.session_state["search_input"] = ""
-    st.session_state["voice_query"] = ""
-
-# --- BACA DATA DATABASE (DENGAN CACHE) ---
-try:
-    df_raw, df_clean = load_database(DATABASE_URL)
-except Exception as e:
-    st.error(f"Gagal memuat spreadsheet: {e}")
-    st.stop()
-
-photo_cols = [c for c in df_raw.columns if any(kw in c.lower() for kw in ['link', 'foto', 'drive', 'url'])]
-
-# --- HEADER APLIKASI ---
-st.title("Pencarian & Katalog Komponen")
-
-col_search, col_filter, col_add, col_mic, col_reset = st.columns([3.5, 2, 0.8, 0.8, 0.8])
-
-with col_search:
-    search_query = st.text_input(
-        "Pencarian Global", 
-        key="search_input",
-        placeholder="Ketik kata kunci pencarian...",
-        label_visibility="collapsed"
-    )
-
-with col_filter:
-    filter_column = st.selectbox(
-        "Filter Kolom",
-        options=["Semua Kolom"] + list(df_raw.columns),
-        index=0,
-        label_visibility="collapsed"
-    )
-
-uploaded_file = None
-captured_image = None
-
-with col_add:
-    with st.popover("Tambah Foto", help="Upload Foto atau Buka Kamera"):
-        tab_upload, tab_camera = st.tabs(["Upload", "Kamera"])
-        with tab_upload:
-            uploaded_file = st.file_uploader("Upload Foto", type=['jpg', 'png', 'jpeg'], label_visibility="collapsed")
-        with tab_camera:
-            captured_image = st.camera_input("Ambil Foto", label_visibility="collapsed")
-
-with col_mic:
-    with st.popover("Suara", help="Cari via Voice Note (Auto Stop saat Diam)"):
-        audio_html = """
-        <div style="text-align: center; font-family: sans-serif;">
-            <button id="recordBtn" style="padding: 8px 12px; background-color: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer;">
-                Mulai Bicara
-            </button>
-            <p id="status" style="font-size: 11px; color: #666; margin-top: 6px;">Klik tombol untuk mulai</p>
-        </div>
-
-        <script>
-        let mediaRecorder;
-        let audioChunks = [];
-        let audioContext;
-        let analyser;
-        let silenceStart;
-        let isRecording = false;
-
-        const recordBtn = document.getElementById('recordBtn');
-        const status = document.getElementById('status');
-
-        recordBtn.addEventListener('click', async () => {
-            if (!isRecording) {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                audioContext = new AudioContext();
-                analyser = audioContext.createAnalyser();
-                const source = audioContext.createMediaStreamSource(stream);
-                source.connect(analyser);
-
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = event => audioChunks.push(event.data);
-                mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-                    const reader = new FileReader();
-                    reader.readAsDataURL(audioBlob);
-                    reader.onloadend = () => {
-                        const base64Audio = reader.result.split(',')[1];
-                        window.parent.postMessage({type: 'streamlit:setComponentValue', value: base64Audio}, '*');
-                    };
-                };
-
-                mediaRecorder.start();
-                isRecording = true;
-                recordBtn.innerText = "Mendengarkan...";
-                recordBtn.style.backgroundColor = "#22c55e";
-                status.innerText = "Bicara sekarang, sistem auto-stop saat kamu diam.";
-
-                silenceStart = Date.now();
-                checkSilence();
-            }
-        });
-
-        function checkSilence() {
-            if (!isRecording) return;
-
-            const dataArray = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteFrequencyData(dataArray);
-
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-            let average = sum / dataArray.length;
-
-            if (average < 10) {
-                if (Date.now() - silenceStart > 1500) {
-                    mediaRecorder.stop();
-                    isRecording = false;
-                    recordBtn.innerText = "Selesai";
-                    recordBtn.style.backgroundColor = "#3b82f6";
-                    status.innerText = "Suara diproses...";
-                    return;
-                }
-            } else {
-                silenceStart = Date.now();
-            }
-            requestAnimationFrame(checkSilence);
-        }
-        </script>
-        """
-        voice_base64 = components.html(audio_html, height=85)
-
-        if voice_base64:
-            try:
-                audio_bytes = base64.b64decode(voice_base64)
-                res_text = transcribe_audio_bytes(audio_bytes)
-                if res_text:
-                    st.success(f"Terdengar: \"{res_text}\"")
-                    st.session_state["voice_query"] = res_text
-                else:
-                    st.error("Suara kurang jelas, coba lagi.")
-            except Exception:
-                pass
-
-with col_reset:
-    st.button("Reset", help="Hapus Pencarian", on_click=reset_search)
-
-active_photo = uploaded_file or captured_image
-active_text_query = search_query.strip() if search_query.strip() else st.session_state["voice_query"].strip()
-
-st.markdown("---")
-
-if not active_text_query and not active_photo:
-    st.subheader("Selamat datang!")
-    st.info("Apa yang Anda cari hari ini? Silakan ketik kata kunci, masukkan foto, atau gunakan pencarian suara pada menu di atas.")
-else:
-    filtered_df = df_clean.copy()
-
-    # --- PENCARIAN TEKS CEPAT ---
-    if active_text_query:
-        norm_query = normalize_text(active_text_query)
+        with sr.Microphone() as source:
+            st.toast("🎙️ Sedang merekam... Bicara sekarang!")
+            # Beri sedikit waktu untuk mulai bicara
+            time.sleep(0.5) 
+            audio = r.listen(source, timeout=3, phrase_time_limit=5)
+            st.toast("⌛ Selesai merekam. Sedang memproses...", icon="⌛")
+            
+        # Transkripsi suara ke teks menggunakan Google (Bahasa Indonesia)
+        recognized_text = r.recognize_google(audio, language="id-ID")
         
-        if filter_column == "Semua Kolom":
-            mask = filtered_df.astype(str).apply(
-                lambda row: row.apply(lambda val: norm_query in normalize_text(val))
-            ).any(axis=1)
-        else:
-            mask = filtered_df[filter_column].astype(str).apply(
-                lambda val: norm_query in normalize_text(val)
+        # Simpan teks hasil transkripsi ke session state agar diisi ke text_input
+        st.session_state.query_text = recognized_text
+        
+        # Force rerun agar text_input memperbarui nilainya dengan teks VN
+        st.experimental_rerun()
+
+    except sr.WaitTimeoutError:
+        st.error("⚠️ Tidak ada suara yang terdeteksi.")
+    except sr.UnknownValueError:
+        st.error("⚠️ Suara tidak jelas. Mohon ulangi.")
+    except Exception as e:
+        st.error(f"⚠️ Error tak terduga: {str(e)}")
+
+
+# ==============================================================================
+# --- TAMPILAN UTAMA APLIKASI (UI) ---
+# ==============================================================================
+st.title("📦 Katalog Inventory Terpadu")
+st.markdown("Cari suku cadang di gudang dengan mudah.")
+
+# --- KOTAK PENCARIAN TERPADU (Container) ---
+with st.container(border=True):
+    st.subheader("Pencarian Suku Cadang")
+
+    # Tata letak menggunakan Kolom: Input Manual/VN | Gambar
+    col_inputs, col_upload = st.columns([10, 3])
+
+    with col_inputs:
+        st.write("Cari lewat Nama/Kode Suku Cadang (Ketik atau Suara)")
+        
+        # Baris berisi Text Input dan Tombol VN
+        col_text, col_vn = st.columns([12, 1])
+
+        with col_text:
+            # Input teks manual, nilainya dihubungkan ke session_state.query_text
+            # label_visibility="collapsed" untuk menyembunyikan label bawaan
+            manual_text = st.text_input(
+                "Masukan kata kunci pencarian...",
+                value=st.session_state.query_text,
+                placeholder="Misal: 'Resistor 10k'",
+                key="query_input",
+                label_visibility="collapsed"
             )
-        filtered_df = filtered_df[mask]
+            # Update state jika pengguna mengetik secara manual
+            st.session_state.query_text = manual_text
 
-    # --- PENGOLAHAN FOTO DENGAN CACHE AI ---
-    if active_photo:
-        with st.spinner("Menganalisis kemiripan gambar..."):
-            query_image = Image.open(active_photo)
-            st.image(query_image, caption="Foto Acuan", width=120)
-            query_features = extract_features(query_image)
+        with col_vn:
+            # Tombol VN dengan ikon mikrofon
+            # Klik tombol ini akan memanggil fungsi process_voice_search()
+            if st.button("🎙️", key="vn_btn", help="Gunakan VN (Pencarian Suara)"):
+                process_voice_search()
 
-            similarities = []
-            loaded_images_dict = []
+    with col_upload:
+        # File uploader untuk pencarian gambar
+        # Tampilkan label di atas uploader
+        st.write("Atau via Gambar:")
+        uploaded_image = st.file_uploader(
+            "Cari", # Label tidak tampil di UI modern
+            type=["jpg", "png"],
+            key="uploaded_file",
+            label_visibility="collapsed"
+        )
+        
+        # Simpan state gambar pencarian
+        st.session_state.search_image_file = uploaded_image
 
-            for idx, row in filtered_df.iterrows():
-                max_sim = -1
-                row_images = []
+        # Tampilkan pratinjau gambar jika ada
+        # (Tampilan pratinjau di dalam uploader sudah cukup modern)
+        if st.session_state.search_image_file:
+            st.image(st.session_state.search_image_file, caption="Pencarian berbasis gambar", width=100)
+            st.info("Pencarian akan didasarkan pada gambar ini.")
 
-                for p_col in photo_cols:
-                    drive_url = str(row.get(p_col, '')).strip()
-                    if drive_url:
-                        # Menggunakan fitur bergambar yang tersimpan di cache
-                        db_feat = get_cached_image_features(drive_url)
-                        if db_feat is not None:
-                            sim_score = cosine_similarity([query_features], [db_feat])[0][0]
-                            if sim_score > max_sim:
-                                max_sim = sim_score
+    st.write("---")
+    
+    # --- SATU-SATUNYA TOMBOL UTAMA UNTUK MENCARI ---
+    # Klik tombol ini akan memanggil fungsi perform_unified_search()
+    if st.button("Cari Sekarang!", type="primary", key="search_now_btn", use_container_width=True):
+        final_query_text = manual_text if manual_text else st.session_state.query_text
+        perform_unified_search(st.session_state.search_image_file, final_query_text)
 
-                        img = load_image_from_url(drive_url)
-                        if img:
-                            row_images.append(img)
 
-                similarities.append(max_sim)
-                loaded_images_dict.append(row_images)
+# --- AREA HASIL PENCARIAN ---
+if st.session_state.results is not None:
+    st.write("---")
+    st.subheader(f"Hasil Pencarian ({len(st.session_state.results)} ditemukan)")
 
-            filtered_df['Tingkat Kemiripan (%)'] = [round(s * 100, 2) if s >= 0 else 0 for s in similarities]
-            filtered_df['Loaded_Images'] = loaded_images_dict
-
-            filtered_df = filtered_df[filtered_df['Tingkat Kemiripan (%)'] >= 70]
-            results_df = filtered_df.sort_values(by='Tingkat Kemiripan (%)', ascending=False)
+    if st.session_state.results:
+        # Loop dan tampilkan hasil dalam bentuk kartu sederhana
+        for item in st.session_state.results:
+            with st.container(border=True):
+                col_item_icon, col_item_desc = st.columns([1, 6])
+                with col_item_icon:
+                    st.write("📦")
+                with col_item_desc:
+                    st.markdown(f"**Nama:** {item['nama']}")
+                    st.markdown(f"**Tipe:** {item['tipe']} | **Stok:** {item['stok']}")
+                    # Tampilkan link gambar jika ada (misal dari DB)
+                    # st.image(item['img_url'], width=100) 
     else:
-        results_df = filtered_df
-
-    # --- MENAMPILKAN DATA ---
-    if results_df.empty:
-        if active_photo:
-            st.warning("Tidak ada barang yang cocok dengan tingkat kemiripan di atas 70%.")
-        else:
-            st.warning("Tidak ada data barang yang sesuai dengan pencarian Anda.")
-    else:
-        EXCLUDE_KEYWORDS = ['link', 'foto', 'drive', 'url', 'uom', 'loaded_images', 'tingkat kemiripan (%)']
-
-        for index, row in results_df.iterrows():
-            with st.container():
-                col_foto, col_detail = st.columns([1, 3.5])
-
-                with col_foto:
-                    imgs = row.get('Loaded_Images', [])
-                    if not active_photo:
-                        imgs = []
-                        for p_col in photo_cols:
-                            drive_url = str(row.get(p_col, '')).strip()
-                            if drive_url:
-                                img = load_image_from_url(drive_url)
-                                if img:
-                                    imgs.append(img)
-
-                    if imgs:
-                        for img in imgs:
-                            st.image(img, width=130)
-                    else:
-                        st.caption("Tanpa Foto")
-
-                with col_detail:
-                    for col in df_raw.columns:
-                        col_clean = col.strip()
-                        col_lower = col_clean.lower()
-
-                        if any(kw in col_lower for kw in EXCLUDE_KEYWORDS):
-                            continue
-
-                        val = str(row.get(col, '')).strip()
-                        val_display = val if val else '-'
-
-                        if col_lower == 'qty':
-                            uom_col = next((c for c in df_raw.columns if c.strip().lower() == 'uom'), None)
-                            uom_val = str(row.get(uom_col, '')).strip() if uom_col else ''
-                            st.markdown(f"**{col_clean} :** {val_display} {uom_val}".strip())
-                        else:
-                            st.markdown(f"**{col_clean} :** {val_display}")
-
-                    if 'Tingkat Kemiripan (%)' in row and row['Tingkat Kemiripan (%)'] > 0:
-                        st.markdown(f"**Kemiripan Foto :** {row['Tingkat Kemiripan (%)']}%")
-
-            st.divider()
+        st.warning("⚠️ Tidak ada suku cadang yang cocok dengan kriteria pencarian.")
