@@ -5,6 +5,5 @@ torchvision
 Pillow
 requests
 scikit-learn
-# Tambahkan ini:
+streamlit-mic-recorder
 SpeechRecognition
-PyAudio
