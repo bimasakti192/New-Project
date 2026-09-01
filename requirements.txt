@@ -5,5 +5,5 @@ torchvision
 Pillow
 requests
 scikit-learn
-streamlit-mic-recorder
 SpeechRecognition
+streamlit-mic-recorder
