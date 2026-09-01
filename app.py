@@ -150,11 +150,11 @@ captured_image = None
 
 # Frame Bar Input Utama
 with st.container(border=True):
-  col_plus, col_search, col_filter, col_reset = st.columns(
-      [0.6, 5, 2, 0.8], vertical_alignment="center"
+  col_plus, col_search, col_reset = st.columns(
+      [0.6, 7, 1], vertical_alignment="center"
   )
 
-  # 1. MENU POPUP (+) SERTA FITUR PERALATAN INPUT
+  # 1. MENU POPUP (+)
   with col_plus:
     with st.popover("➕", help="Tambah opsi pencarian"):
       st.markdown("📎 **Opsi Input**")
@@ -191,25 +191,16 @@ with st.container(border=True):
           else:
             st.error("Suara kurang jelas/tidak terdeteksi.")
 
-  # 2. KOLOM TEXT SEARCH
+  # 2. KOLOM TEXT SEARCH GLOBAL
   with col_search:
     search_query = st.text_input(
         "Pencarian Global",
         key="search_input",
-        placeholder="Ketik kata kunci atau klik ➕...",
+        placeholder="Ketik kata kunci pencarian...",
         label_visibility="collapsed",
     )
 
-  # 3. FILTER
-  with col_filter:
-    filter_column = st.selectbox(
-        "Filter Kolom",
-        options=["Semua Kolom"] + list(df_raw.columns),
-        index=0,
-        label_visibility="collapsed",
-    )
-
-  # 4. RESET
+  # 3. TOMBOL RESET
   with col_reset:
     st.button(
         "Reset",
@@ -256,24 +247,16 @@ if not active_text_query and not active_photo:
 else:
   filtered_df = df_clean.copy()
 
-  # Pencarian Teks
+  # Pencarian Teks Global (Semua Kolom)
   if active_text_query:
     norm_query = normalize_text(active_text_query)
-
-    if filter_column == "Semua Kolom":
-      mask = (
-          filtered_df.astype(str)
-          .apply(
-              lambda row: row.apply(
-                  lambda val: norm_query in normalize_text(val)
-              )
-          )
-          .any(axis=1)
-      )
-    else:
-      mask = filtered_df[filter_column].astype(str).apply(
-          lambda val: norm_query in normalize_text(val)
-      )
+    mask = (
+        filtered_df.astype(str)
+        .apply(
+            lambda row: row.apply(lambda val: norm_query in normalize_text(val))
+        )
+        .any(axis=1)
+    )
     filtered_df = filtered_df[mask]
 
   # Pencarian Gambar AI
