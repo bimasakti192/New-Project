@@ -142,7 +142,7 @@ photo_cols = [
     if any(kw in c.lower() for kw in ["link", "foto", "drive", "url"])
 ]
 
-# --- UI HEADER & BAR PENCARIAN TERPADU ---
+# --- UI HEADER & INPUT BAR ---
 st.title("Pencarian & Katalog Komponen")
 
 uploaded_file = None
@@ -154,35 +154,32 @@ with st.container(border=True):
       [0.6, 5, 2, 0.8], vertical_alignment="center"
   )
 
-  # 1. TOMBOL MENU MELAYANG (SEPERTI GEMINI/CHATGPT)
+  # 1. MENU POPUP (+) SERTA FITUR PERALATAN INPUT
   with col_plus:
-    with st.popover("➕", help="Tambah Lampiran & Opsi Input"):
-      st.markdown("### 📎 Lampiran & Fitur Pencarian")
+    with st.popover("➕", help="Tambah opsi pencarian"):
+      st.markdown("📎 **Opsi Input**")
 
-      tab_upload, tab_camera, tab_voice = st.tabs(
-          ["📁 File", "📸 Kamera", "🎙️ Suara"]
+      option = st.radio(
+          "Pilih Opsi",
+          ["Upload File", "Ambil Foto", "Rekam Suara"],
+          label_visibility="collapsed",
       )
 
-      with tab_upload:
+      if option == "Upload File":
         uploaded_file = st.file_uploader(
-            "Upload Foto",
+            "Upload Gambar",
             type=["jpg", "png", "jpeg"],
-            label_visibility="collapsed",
             key=f"upload_{st.session_state['photo_key']}",
         )
-
-      with tab_camera:
+      elif option == "Ambil Foto":
         captured_image = st.camera_input(
-            "Ambil Foto",
-            label_visibility="collapsed",
-            key=f"camera_{st.session_state['photo_key']}",
+            "Ambil Foto", key=f"camera_{st.session_state['photo_key']}"
         )
-
-      with tab_voice:
-        st.write("Mulai rekam suara:")
+      elif option == "Rekam Suara":
+        st.write("🎙️ Klik tombol untuk merekam:")
         audio_record = mic_recorder(
             start_prompt="Mulai Bicara 🎙️",
-            stop_prompt="Berhenti & Olah ⏹️",
+            stop_prompt="Berhenti ⏹️",
             key="voice_recorder",
         )
         if audio_record is not None:
@@ -194,16 +191,16 @@ with st.container(border=True):
           else:
             st.error("Suara kurang jelas/tidak terdeteksi.")
 
-  # 2. KOLOM INPUT TEKS UTAMA
+  # 2. KOLOM TEXT SEARCH
   with col_search:
     search_query = st.text_input(
         "Pencarian Global",
         key="search_input",
-        placeholder="Ketik nama barang atau gunakan menu ➕...",
+        placeholder="Ketik kata kunci atau klik ➕...",
         label_visibility="collapsed",
     )
 
-  # 3. FILTER KOLOM
+  # 3. FILTER
   with col_filter:
     filter_column = st.selectbox(
         "Filter Kolom",
@@ -212,11 +209,11 @@ with st.container(border=True):
         label_visibility="collapsed",
     )
 
-  # 4. TOMBOL RESET PENCARIAN
+  # 4. RESET
   with col_reset:
     st.button(
         "Reset",
-        help="Hapus Semua Pencarian",
+        help="Hapus Semua",
         on_click=reset_search,
         use_container_width=True,
     )
@@ -228,34 +225,33 @@ active_text_query = (
     else st.session_state["voice_query"].strip()
 )
 
-# --- INDIKATOR PRATINJAU FOTO & TOMBOL SILANG (HAPUS FOTO) ---
+# --- PRATINJAU FOTO & TOMBOL HAPUS (❌) ---
 if active_photo:
   with st.container(border=True):
     col_img_thumb, col_img_info, col_img_btn = st.columns(
         [1, 6, 2], vertical_alignment="center"
     )
     with col_img_thumb:
-      st.image(active_photo, width=70)
+      st.image(active_photo, width=65)
     with col_img_info:
       st.markdown("**Foto Acuan Terlampir**")
-      st.caption("Pencarian berbasis kemiripan gambar sedang aktif.")
+      st.caption("Menampilkan hasil berdasarkan kemiripan foto.")
     with col_img_btn:
       st.button(
           "❌ Hapus Foto",
           on_click=clear_photo,
           type="secondary",
           use_container_width=True,
-          help="Klik untuk menghapus foto acuan",
       )
 
 st.markdown("---")
 
-# --- PROSES HASIL PENCARIAN ---
+# --- PROSES PEMROSESAN HASIL PENCARIAN ---
 if not active_text_query and not active_photo:
   st.subheader("Selamat datang!")
   st.info(
-      "Silakan ketik kata kunci pada kolom pencarian, atau klik menu **➕** untuk"
-      " mengambil foto atau merekam suara."
+      "Silakan ketik kata kunci pada kolom pencarian, atau klik ikon **➕** untuk"
+      " memilih opsi foto/suara."
   )
 else:
   filtered_df = df_clean.copy()
@@ -321,7 +317,7 @@ else:
   else:
     results_df = filtered_df
 
-  # Tampilan Data
+  # Tampilan Data Output
   if results_df.empty:
     if active_photo:
       st.warning(
