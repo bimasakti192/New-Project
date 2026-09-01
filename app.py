@@ -21,7 +21,7 @@ DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTih
 st.set_page_config(page_title="Katalog Komponen", layout="wide")
 
 
-# --- 1. OPTIMASI CACHE MODEL & PREPROCESSING ---
+# --- 1. CACHE MODEL & PREPROCESSING ---
 @st.cache_resource
 def load_feature_extractor():
   weights = models.ResNet18_Weights.DEFAULT
@@ -42,7 +42,7 @@ transform = transforms.Compose([
 ])
 
 
-# --- 2. OPTIMASI CACHE DATABASE ---
+# --- 2. CACHE DATABASE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def load_database(url):
   df_raw = pd.read_csv(url)
@@ -50,7 +50,7 @@ def load_database(url):
   return df_raw, df_clean
 
 
-# --- 3. OPTIMASI CACHE UNDUH GAMBAR ---
+# --- 3. CACHE UNDUH GAMBAR ---
 def get_drive_direct_url(drive_url):
   file_id_match = re.search(r"(?:/d/|id=)([a-zA-Z0-9_-]+)", str(drive_url))
   if file_id_match:
@@ -89,7 +89,7 @@ def get_cached_image_features(url):
   return None
 
 
-# --- 4. FUNGSI TRANSKRIPSI SUARA ---
+# --- 4. TRANSKRIPSI SUARA ---
 def transcribe_audio_bytes(audio_bytes):
   try:
     import speech_recognition as sr
@@ -110,7 +110,7 @@ def normalize_text(text):
   return re.sub(r"[\s\-]+", "", str(text)).lower()
 
 
-# --- STATE RESET PENCARIAN ---
+# --- STATE MANAGEMENT ---
 if "search_input" not in st.session_state:
   st.session_state["search_input"] = ""
 if "voice_query" not in st.session_state:
@@ -122,7 +122,7 @@ def reset_search():
   st.session_state["voice_query"] = ""
 
 
-# --- BACA DATA DATABASE ---
+# --- BACA DATABASE ---
 try:
   df_raw, df_clean = load_database(DATABASE_URL)
 except Exception as e:
@@ -135,63 +135,81 @@ photo_cols = [
     if any(kw in c.lower() for kw in ["link", "foto", "drive", "url"])
 ]
 
-# --- HEADER APLIKASI ---
+# --- UI HEADER & BAR PENCARIAN TERPADU ---
 st.title("Pencarian & Katalog Komponen")
-
-col_search, col_filter, col_add, col_mic, col_reset = st.columns(
-    [3.5, 2, 0.8, 0.8, 0.8]
-)
-
-with col_search:
-  search_query = st.text_input(
-      "Pencarian Global",
-      key="search_input",
-      placeholder="Ketik kata kunci pencarian...",
-      label_visibility="collapsed",
-  )
-
-with col_filter:
-  filter_column = st.selectbox(
-      "Filter Kolom",
-      options=["Semua Kolom"] + list(df_raw.columns),
-      index=0,
-      label_visibility="collapsed",
-  )
 
 uploaded_file = None
 captured_image = None
 
-with col_add:
-  with st.popover("Tambah Foto", help="Upload Foto atau Buka Kamera"):
-    tab_upload, tab_camera = st.tabs(["Upload", "Kamera"])
-    with tab_upload:
-      uploaded_file = st.file_uploader(
-          "Upload Foto", type=["jpg", "png", "jpeg"], label_visibility="collapsed"
-      )
-    with tab_camera:
-      captured_image = st.camera_input("Ambil Foto", label_visibility="collapsed")
+# Frame Bar Input Bergaya Gemini/ChatGPT
+with st.container(border=True):
+  col_plus, col_search, col_filter, col_reset = st.columns(
+      [0.6, 5, 2, 0.8], vertical_alignment="center"
+  )
 
-# --- PERBAIKAN PENCARIAN SUARA ---
-with col_mic:
-  with st.popover("Suara", help="Cari via Voice Note"):
-    st.write("🎙️ **Rekam Suara**")
-    audio_record = mic_recorder(
-        start_prompt="Mulai Bicara 🎙️",
-        stop_prompt="Berhenti & Olah ⏹️",
-        key="voice_recorder",
+  # 1. TOMBOL MENU MELAYANG (SEPERTI GEMINI/CHATGPT)
+  with col_plus:
+    with st.popover("➕", help="Tambah Lampiran & Opsi Input"):
+      st.markdown("### 📎 Lampiran & Fitur Pencarian")
+
+      tab_upload, tab_camera, tab_voice = st.tabs(
+          ["📁 File", "📸 Kamera", "🎙️ Suara"]
+      )
+
+      with tab_upload:
+        uploaded_file = st.file_uploader(
+            "Upload Foto",
+            type=["jpg", "png", "jpeg"],
+            label_visibility="collapsed",
+        )
+
+      with tab_camera:
+        captured_image = st.camera_input(
+            "Ambil Foto", label_visibility="collapsed"
+        )
+
+      with tab_voice:
+        st.write("Mulai rekam suara:")
+        audio_record = mic_recorder(
+            start_prompt="Mulai Bicara 🎙️",
+            stop_prompt="Berhenti & Olah ⏹️",
+            key="voice_recorder",
+        )
+        if audio_record is not None:
+          audio_bytes = audio_record["bytes"]
+          res_text = transcribe_audio_bytes(audio_bytes)
+          if res_text:
+            st.session_state["voice_query"] = res_text
+            st.success(f'Terdengar: "{res_text}"')
+          else:
+            st.error("Suara kurang jelas/tidak terdeteksi.")
+
+  # 2. KOLOM INPUT TEKS UTAMA
+  with col_search:
+    search_query = st.text_input(
+        "Pencarian Global",
+        key="search_input",
+        placeholder="Ketik nama barang atau gunakan menu ➕...",
+        label_visibility="collapsed",
     )
 
-    if audio_record is not None:
-      audio_bytes = audio_record["bytes"]
-      res_text = transcribe_audio_bytes(audio_bytes)
-      if res_text:
-        st.session_state["voice_query"] = res_text
-        st.success(f'Terdengar: "{res_text}"')
-      else:
-        st.error("Suara tidak terdeteksi / kurang jelas.")
+  # 3. FILTER KOLOM
+  with col_filter:
+    filter_column = st.selectbox(
+        "Filter Kolom",
+        options=["Semua Kolom"] + list(df_raw.columns),
+        index=0,
+        label_visibility="collapsed",
+    )
 
-with col_reset:
-  st.button("Reset", help="Hapus Pencarian", on_click=reset_search)
+  # 4. TOMBOL RESET
+  with col_reset:
+    st.button(
+        "Reset",
+        help="Hapus Pencarian",
+        on_click=reset_search,
+        use_container_width=True,
+    )
 
 active_photo = uploaded_file or captured_image
 active_text_query = (
@@ -202,16 +220,17 @@ active_text_query = (
 
 st.markdown("---")
 
+# --- PROSES HASIL PENCARIAN ---
 if not active_text_query and not active_photo:
   st.subheader("Selamat datang!")
   st.info(
-      "Apa yang Anda cari hari ini? Silakan ketik kata kunci, masukkan foto, atau"
-      " gunakan pencarian suara pada menu di atas."
+      "Silakan ketik kata kunci pada kolom pencarian, atau klik menu **➕** untuk"
+      " mengambil foto atau merekam suara."
   )
 else:
   filtered_df = df_clean.copy()
 
-  # --- PENCARIAN TEKS CEPAT ---
+  # Pencarian Teks
   if active_text_query:
     norm_query = normalize_text(active_text_query)
 
@@ -231,7 +250,7 @@ else:
       )
     filtered_df = filtered_df[mask]
 
-  # --- PENGOLAHAN FOTO DENGAN CACHE AI ---
+  # Pencarian Gambar AI
   if active_photo:
     with st.spinner("Menganalisis kemiripan gambar..."):
       query_image = Image.open(active_photo)
@@ -273,7 +292,7 @@ else:
   else:
     results_df = filtered_df
 
-  # --- MENAMPILKAN DATA ---
+  # Tampilan Data
   if results_df.empty:
     if active_photo:
       st.warning(
