@@ -1,5 +1,7 @@
 import streamlit as st
 import speech_recognition as sr
+from streamlit_mic_recorder import mic_recorder
+from io import BytesIO
 import time
 
 st.set_page_config(page_title="Katalog Inventory", page_icon="📦", layout="centered")
@@ -18,20 +20,6 @@ if 'query_text' not in st.session_state:
 if 'results' not in st.session_state:
     st.session_state.results = None
 
-# Fungsi Rekam Suara (VN)
-def process_voice():
-    r = sr.Recognizer()
-    try:
-        with sr.Microphone() as source:
-            st.toast("🎙️ Bicara sekarang...", icon="🎙️")
-            audio = r.listen(source, timeout=3, phrase_time_limit=5)
-            st.toast("⌛ Memproses suara...", icon="⌛")
-        text = r.recognize_google(audio, language="id-ID")
-        st.session_state.query_text = text
-        st.rerun()
-    except Exception as e:
-        st.error("Gagal merekam suara. Pastikan mikrofon aktif.")
-
 st.title("📦 Katalog Inventory")
 st.write("Cari barang menggunakan teks, gambar, atau suara.")
 
@@ -39,20 +27,23 @@ st.write("Cari barang menggunakan teks, gambar, atau suara.")
 with st.container(border=True):
     col_menu, col_text, col_search = st.columns([1, 7, 2])
 
-    # 1. TOMBOL MENU MELAYANG (Seperti di gambar Gemini)
+    # 1. TOMBOL MENU MELAYANG
     with col_menu:
         with st.popover("➕", help="Tambah Lampiran / Opsi"):
             st.markdown("### 📎 Lampiran & Fitur")
             
-            # File Uploader Gambar (Sudah ada tombol 'X' bawaan Streamlit)
+            # File Uploader Gambar
             uploaded_image = st.file_uploader("📷 Unggah Gambar Suku Cadang", type=["jpg", "jpeg", "png"])
             
             st.divider()
             
-            # Tombol VN di dalam menu
+            # Perekam Suara dari Browser
             st.write("🎙️ **Pencarian Suara**")
-            if st.button("Mulai Reakaman Suara", use_container_width=True):
-                process_voice()
+            audio_record = mic_recorder(
+                start_prompt="Klik untuk Rekam 🎙️",
+                stop_prompt="Berhenti & Kirim ⏹️",
+                key='recorder'
+            )
 
     # 2. KOTAK TEKS UTAMA
     with col_text:
@@ -68,9 +59,24 @@ with st.container(border=True):
     with col_search:
         btn_cari = st.button("Cari 🔍", type="primary", use_container_width=True)
 
+# Tentukan jika ada rekaman suara baru yang masuk
+if audio_record is not None:
+    audio_bytes = audio_record['bytes']
+    r = sr.Recognizer()
+    try:
+        # Konversi bytes audio browser ke format speech recognition
+        audio_file = BytesIO(audio_bytes)
+        with sr.AudioFile(audio_file) as source:
+            audio_data = r.record(source)
+            text = r.recognize_google(audio_data, language="id-ID")
+            st.session_state.query_text = text
+            st.toast(f"Terekam: '{text}'", icon="🎙️")
+    except Exception:
+        st.error("Suara tidak terdeteksi atau tidak jelas. Coba lagi.")
+
 # Tampilkan Indikator Gambar jika ada yang diunggah
 if uploaded_image:
-    st.info(f"📷 Gambar terlampir: **{uploaded_image.name}** (Klik 'X' di menu ➕ untuk menghapus)")
+    st.info(f"📷 Gambar terlampir: **{uploaded_image.name}**")
     st.image(uploaded_image, width=120)
 
 # --- LOGIKA PENCARIAN TERPADU ---
@@ -79,7 +85,7 @@ if btn_cari:
         time.sleep(0.5)
         if uploaded_image:
             st.success("Mencari berdasarkan gambar terlampir...")
-            st.session_state.results = [DB[0], DB[1]] # Contoh hasil dummy
+            st.session_state.results = [DB[0], DB[1]]
         elif query:
             st.success(f"Mencari kata kunci: '{query}'")
             st.session_state.results = [i for i in DB if query.lower() in i['nama'].lower()]
