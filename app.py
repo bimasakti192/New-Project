@@ -7,7 +7,7 @@ from PIL import Image
 import requests
 from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
-from streamlit_mic_recorder import mic_recorder
+import streamlit.components.v1 as components
 import torch
 import torchvision.models as models
 import torchvision.transforms as transforms
@@ -89,21 +89,6 @@ def get_cached_image_features(url):
   return None
 
 
-# --- 4. TRANSKRIPSI SUARA ---
-def transcribe_audio_bytes(audio_bytes):
-  try:
-    import speech_recognition as sr
-
-    recognizer = sr.Recognizer()
-    audio_file = BytesIO(audio_bytes)
-    with sr.AudioFile(audio_file) as source:
-      audio_data = recognizer.record(source)
-      text = recognizer.recognize_google(audio_data, language="id-ID")
-      return text
-  except Exception:
-    return None
-
-
 def normalize_text(text):
   if pd.isna(text):
     return ""
@@ -113,10 +98,15 @@ def normalize_text(text):
 # --- STATE MANAGEMENT ---
 if "search_input" not in st.session_state:
   st.session_state["search_input"] = ""
-if "voice_query" not in st.session_state:
-  st.session_state["voice_query"] = ""
 if "photo_key" not in st.session_state:
   st.session_state["photo_key"] = 0
+
+# Tangkap hasil pencarian suara dari browser via Query Parameter
+if "voice_search" in st.query_params:
+  voice_text = st.query_params["voice_search"]
+  st.session_state["search_input"] = voice_text
+  st.query_params.clear()
+  st.rerun()
 
 
 def clear_photo():
@@ -125,7 +115,6 @@ def clear_photo():
 
 def reset_search():
   st.session_state["search_input"] = ""
-  st.session_state["voice_query"] = ""
   clear_photo()
 
 
@@ -176,20 +165,82 @@ with st.container(border=True):
             "Ambil Foto", key=f"camera_{st.session_state['photo_key']}"
         )
       elif option == "Rekam Suara":
-        st.write("🎙️ Klik tombol untuk merekam:")
-        audio_record = mic_recorder(
-            start_prompt="Mulai Bicara 🎙️",
-            stop_prompt="Berhenti ⏹️",
-            key="voice_recorder",
-        )
-        if audio_record is not None:
-          audio_bytes = audio_record["bytes"]
-          res_text = transcribe_audio_bytes(audio_bytes)
-          if res_text:
-            st.session_state["voice_query"] = res_text
-            st.success(f'Terdengar: "{res_text}"')
-          else:
-            st.error("Suara kurang jelas/tidak terdeteksi.")
+        # PERBAIKAN: HTML5 Web Speech API Bawaan Browser
+        voice_html = """
+                <div style="font-family: sans-serif; text-align: center; padding: 5px;">
+                    <p id="status" style="font-size: 13px; color: #555; margin-bottom: 8px;">
+                        Klik tombol di bawah dan langsung bicara.<br>Sistem akan <b>otomatis berhenti</b> saat Anda selesai bicara.
+                    </p>
+                    <button id="btn-mic" style="
+                        background-color: #ff4b4b;
+                        color: white;
+                        border: none;
+                        padding: 10px 16px;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        width: 100%;
+                        font-size: 14px;
+                    ">
+                        🎙️ Mulai Bicara
+                    </button>
+                </div>
+
+                <script>
+                const btn = document.getElementById('btn-mic');
+                const status = document.getElementById('status');
+
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                    status.innerHTML = "<b style='color:red;'>Browser tidak mendukung (Gunakan Chrome/Edge/Safari).</b>";
+                    btn.disabled = true;
+                } else {
+                    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                    const recognition = new SpeechRecognition();
+                    recognition.lang = 'id-ID';
+                    recognition.continuous = false; // OTOMATIS BERHENTI SAAT HENING
+                    recognition.interimResults = false;
+
+                    btn.onclick = () => {
+                        try {
+                            recognition.start();
+                        } catch(e) {}
+                    };
+
+                    recognition.onstart = () => {
+                        status.innerHTML = "<b style='color: green;'>🔴 Mendengarkan... Silakan bicara sekarang!</b>";
+                        btn.style.backgroundColor = "#28a745";
+                        btn.innerText = "🔊 Sedang Mendengarkan...";
+                    };
+
+                    recognition.onspeechend = () => {
+                        status.innerHTML = "⏳ Selesai bicara. Memproses...";
+                        recognition.stop();
+                    };
+
+                    recognition.onresult = (event) => {
+                        const transcript = event.results[0][0].transcript;
+                        status.innerHTML = "✅ Terdengar: <b>" + transcript + "</b>";
+                        
+                        // Kirim teks langsung ke Streamlit
+                        const parentUrl = new URL(window.parent.location.href);
+                        parentUrl.searchParams.set('voice_search', transcript);
+                        window.parent.location.href = parentUrl.href;
+                    };
+
+                    recognition.onerror = (event) => {
+                        status.innerHTML = "<b style='color:red;'>Suara tidak terdeteksi. Coba lagi.</b>";
+                        btn.style.backgroundColor = "#ff4b4b";
+                        btn.innerText = "🎙️ Mulai Bicara";
+                    };
+
+                    recognition.onend = () => {
+                        btn.style.backgroundColor = "#ff4b4b";
+                        btn.innerText = "🎙️ Mulai Bicara";
+                    };
+                }
+                </script>
+                """
+        components.html(voice_html, height=140)
 
   # 2. KOLOM TEXT SEARCH GLOBAL
   with col_search:
@@ -210,11 +261,7 @@ with st.container(border=True):
     )
 
 active_photo = uploaded_file or captured_image
-active_text_query = (
-    search_query.strip()
-    if search_query.strip()
-    else st.session_state["voice_query"].strip()
-)
+active_text_query = search_query.strip()
 
 # --- PRATINJAU FOTO & TOMBOL HAPUS (❌) ---
 if active_photo:
