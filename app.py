@@ -115,11 +115,18 @@ if "search_input" not in st.session_state:
   st.session_state["search_input"] = ""
 if "voice_query" not in st.session_state:
   st.session_state["voice_query"] = ""
+if "photo_key" not in st.session_state:
+  st.session_state["photo_key"] = 0
+
+
+def clear_photo():
+  st.session_state["photo_key"] += 1
 
 
 def reset_search():
   st.session_state["search_input"] = ""
   st.session_state["voice_query"] = ""
+  clear_photo()
 
 
 # --- BACA DATABASE ---
@@ -141,7 +148,7 @@ st.title("Pencarian & Katalog Komponen")
 uploaded_file = None
 captured_image = None
 
-# Frame Bar Input Bergaya Gemini/ChatGPT
+# Frame Bar Input Utama
 with st.container(border=True):
   col_plus, col_search, col_filter, col_reset = st.columns(
       [0.6, 5, 2, 0.8], vertical_alignment="center"
@@ -161,11 +168,14 @@ with st.container(border=True):
             "Upload Foto",
             type=["jpg", "png", "jpeg"],
             label_visibility="collapsed",
+            key=f"upload_{st.session_state['photo_key']}",
         )
 
       with tab_camera:
         captured_image = st.camera_input(
-            "Ambil Foto", label_visibility="collapsed"
+            "Ambil Foto",
+            label_visibility="collapsed",
+            key=f"camera_{st.session_state['photo_key']}",
         )
 
       with tab_voice:
@@ -202,11 +212,11 @@ with st.container(border=True):
         label_visibility="collapsed",
     )
 
-  # 4. TOMBOL RESET
+  # 4. TOMBOL RESET PENCARIAN
   with col_reset:
     st.button(
         "Reset",
-        help="Hapus Pencarian",
+        help="Hapus Semua Pencarian",
         on_click=reset_search,
         use_container_width=True,
     )
@@ -217,6 +227,26 @@ active_text_query = (
     if search_query.strip()
     else st.session_state["voice_query"].strip()
 )
+
+# --- INDIKATOR PRATINJAU FOTO & TOMBOL SILANG (HAPUS FOTO) ---
+if active_photo:
+  with st.container(border=True):
+    col_img_thumb, col_img_info, col_img_btn = st.columns(
+        [1, 6, 2], vertical_alignment="center"
+    )
+    with col_img_thumb:
+      st.image(active_photo, width=70)
+    with col_img_info:
+      st.markdown("**Foto Acuan Terlampir**")
+      st.caption("Pencarian berbasis kemiripan gambar sedang aktif.")
+    with col_img_btn:
+      st.button(
+          "❌ Hapus Foto",
+          on_click=clear_photo,
+          type="secondary",
+          use_container_width=True,
+          help="Klik untuk menghapus foto acuan",
+      )
 
 st.markdown("---")
 
@@ -254,7 +284,6 @@ else:
   if active_photo:
     with st.spinner("Menganalisis kemiripan gambar..."):
       query_image = Image.open(active_photo)
-      st.image(query_image, caption="Foto Acuan", width=120)
       query_features = extract_features(query_image)
 
       similarities = []
