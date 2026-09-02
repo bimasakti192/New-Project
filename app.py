@@ -1,14 +1,10 @@
-import io
+import base64
 import re
 from io import BytesIO
 
-import gspread
 import pandas as pd
 import requests
 import streamlit as st
-from google.oauth2.service_account import Credentials
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 from PIL import Image
 
 # ==============================================================================
@@ -16,31 +12,8 @@ from PIL import Image
 # ==============================================================================
 DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTihRlqwwhyxJSpVMW4WH15XM_rx2yLGfXCjbOn-SbEetgs5vRn8OWEFqO_ov-BgMwP/pub?output=csv"
 
-# ID spreadsheet ASLI (bukan link publish). Ambil dari URL editor:
-# https://docs.google.com/spreadsheets/d/ISI_ID_INI/edit
-SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/1SyeWtAjKAFyDs8oDVxKhiQluF45JjB_Se79PjmfrQxQ/edit?gid=0#gid=0"
-SHEET_NAME = "Sheet1"  # ganti sesuai nama tab sheet kamu
-
-# ID folder Drive tempat foto baru akan disimpan
-DRIVE_FOLDER_ID = "1UoMPOvUXmj2Ao9AWSE1f4-eQ7WgrTkZz"
-
-# Urutan kolom di sheet — HARUS sama persis urutannya dengan kolom asli.
-# Sesuaikan list ini kalau urutan/nama kolommu berbeda.
-SHEET_COLUMNS = [
-    "Lokasi Rak",
-    "Kode Material",
-    "Nama Barang",
-    "Qty",
-    "UoM",
-    "Deskripsi",
-    "Link Drive Foto",
-    "Link Drive Foto",  # kolom foto kedua
-]
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
+# URL Web App hasil deploy Apps Script (yang berakhiran /exec)
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyDvFFjKQMkxvgIdqKKMHmJ2NOqry3mHsjvGdjVfhEF1zBMh03N1pA-m84sPRFgfTI1/exec"
 
 st.set_page_config(page_title="Katalog Komponen", layout="wide")
 
@@ -86,57 +59,7 @@ st.markdown(
 )
 
 
-# ==============================================================================
-# 🔐 GOOGLE API HELPERS (Sheets & Drive lewat Service Account)
-# ==============================================================================
-@st.cache_resource(show_spinner=False)
-def get_google_credentials():
-    return Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=SCOPES
-    )
-
-
-@st.cache_resource(show_spinner=False)
-def get_gspread_client():
-    creds = get_google_credentials()
-    return gspread.authorize(creds)
-
-
-@st.cache_resource(show_spinner=False)
-def get_drive_service():
-    creds = get_google_credentials()
-    return build("drive", "v3", credentials=creds)
-
-
-def upload_photo_to_drive(uploaded_file):
-    """Upload 1 file foto ke folder Drive, set akses publik, kembalikan link view."""
-    drive_service = get_drive_service()
-    file_metadata = {"name": uploaded_file.name, "parents": [DRIVE_FOLDER_ID]}
-    media = MediaIoBaseUpload(
-        io.BytesIO(uploaded_file.getvalue()),
-        mimetype=uploaded_file.type or "application/octet-stream",
-        resumable=False,
-    )
-    file = (
-        drive_service.files()
-        .create(body=file_metadata, media_body=media, fields="id")
-        .execute()
-    )
-    file_id = file.get("id")
-    drive_service.permissions().create(
-        fileId=file_id, body={"role": "reader", "type": "anyone"}
-    ).execute()
-    return f"https://drive.google.com/file/d/{file_id}/view"
-
-
-def append_row_to_sheet(row_values):
-    gc = get_gspread_client()
-    sh = gc.open_by_key(SPREADSHEET_ID)
-    ws = sh.worksheet(SHEET_NAME)
-    ws.append_row(row_values, value_input_option="USER_ENTERED")
-
-
-# --- CACHE DATABASE (untuk fitur pencarian, tetap pakai link publish) ---
+# --- CACHE DATABASE (untuk fitur pencarian) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def load_database(url):
     df_raw = pd.read_csv(url)
@@ -182,6 +105,37 @@ def reset_search():
 
 
 # ==============================================================================
+# 🌐 KIRIM DATA + FOTO KE APPS SCRIPT (bukan lewat service account)
+# ==============================================================================
+def file_to_payload(uploaded_file):
+    if uploaded_file is None:
+        return None
+    raw_bytes = uploaded_file.getvalue()
+    b64 = base64.b64encode(raw_bytes).decode("utf-8")
+    return {
+        "base64": b64,
+        "mimeType": uploaded_file.type or "application/octet-stream",
+        "fileName": uploaded_file.name,
+    }
+
+
+def submit_to_apps_script(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2):
+    payload = {
+        "lokasiRak": lokasi_rak,
+        "kodeMaterial": kode_material,
+        "namaBarang": nama_barang,
+        "qty": qty,
+        "uom": uom,
+        "deskripsi": deskripsi,
+        "foto1": file_to_payload(foto1),
+        "foto2": file_to_payload(foto2),
+    }
+    resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ==============================================================================
 # 🗂️ TAB: PENCARIAN  |  TAMBAH DATA
 # ==============================================================================
 st.title("Katalog Komponen")
@@ -189,7 +143,7 @@ st.title("Katalog Komponen")
 tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
 
 # ------------------------------------------------------------------------------
-# TAB 1: PENCARIAN (kode asli kamu, tidak diubah)
+# TAB 1: PENCARIAN (tidak berubah)
 # ------------------------------------------------------------------------------
 with tab_cari:
     try:
@@ -288,13 +242,13 @@ with tab_cari:
                 st.divider()
 
 # ------------------------------------------------------------------------------
-# TAB 2: TAMBAH DATA BARU (fitur baru)
+# TAB 2: TAMBAH DATA BARU (kirim ke Apps Script, bukan service account)
 # ------------------------------------------------------------------------------
 with tab_tambah:
     st.subheader("Tambah Data Barang Baru")
     st.caption(
-        "Data akan langsung ditulis ke spreadsheet. Foto otomatis diupload ke Google Drive "
-        "dan link-nya dimasukkan ke kolom yang sesuai."
+        "Data akan dikirim ke Google Apps Script, yang otomatis upload foto ke Drive "
+        "dan menulis baris baru ke spreadsheet."
     )
 
     with st.form("form_tambah_barang", clear_on_submit=True):
@@ -315,26 +269,18 @@ with tab_tambah:
         if submitted:
             if not (lokasi_rak and kode_material and nama_barang and uom):
                 st.error("Mohon lengkapi semua kolom bertanda *.")
+            elif APPS_SCRIPT_URL.startswith("ISI_URL"):
+                st.error("APPS_SCRIPT_URL belum diisi di kode. Lihat instruksi deploy Apps Script.")
             else:
                 with st.spinner("Mengupload foto & menyimpan data..."):
                     try:
-                        link1 = upload_photo_to_drive(foto1) if foto1 is not None else ""
-                        link2 = upload_photo_to_drive(foto2) if foto2 is not None else ""
-
-                        append_row_to_sheet(
-                            [
-                                lokasi_rak,
-                                kode_material,
-                                nama_barang,
-                                qty,
-                                uom,
-                                deskripsi,
-                                link1,
-                                link2,
-                            ]
+                        result = submit_to_apps_script(
+                            lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2
                         )
-
-                        load_database.clear()  # biar tab pencarian langsung lihat data baru
-                        st.success("Data berhasil disimpan!")
+                        if result.get("success"):
+                            load_database.clear()
+                            st.success(result.get("message", "Data berhasil disimpan!"))
+                        else:
+                            st.error(result.get("message", "Gagal menyimpan data."))
                     except Exception as e:
                         st.error(f"Gagal menyimpan data: {e}")
