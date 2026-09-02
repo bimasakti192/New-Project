@@ -59,7 +59,7 @@ st.markdown(
 )
 
 
-# --- CACHE DATABASE (untuk fitur pencarian & edit) ---
+# --- CACHE DATABASE ---
 @st.cache_data(ttl=300, show_spinner=False)
 def load_database(url):
     df_raw = pd.read_csv(url)
@@ -98,6 +98,8 @@ def normalize_text(text):
 # --- STATE MANAGEMENT ---
 if "search_input" not in st.session_state:
     st.session_state["search_input"] = ""
+if "edit_target" not in st.session_state:
+    st.session_state["edit_target"] = None
 
 
 def reset_search():
@@ -162,13 +164,93 @@ def submit_update_item(
 
 
 # ==============================================================================
-# 🗂️ TAB: PENCARIAN | TAMBAH DATA | EDIT DATA
+# 🧩 KOMPONEN: form edit inline untuk satu barang
+# ==============================================================================
+def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_deskripsi, photo_cols):
+    kode_val = str(row.get(col_kode, "")).strip()
+
+    with st.form(f"form_edit_{kode_val}"):
+        c1, c2 = st.columns(2)
+        with c1:
+            e_lokasi_rak = st.text_input(
+                "Lokasi Rak *", value=str(row.get(col_lokasi, "")) if col_lokasi else "", key=f"e_lokasi_{kode_val}"
+            )
+            e_kode_material = st.text_input("Kode Material *", value=kode_val, key=f"e_kode_{kode_val}")
+            e_nama_barang = st.text_input(
+                "Nama Barang *", value=str(row.get(col_nama, "")) if col_nama else "", key=f"e_nama_{kode_val}"
+            )
+            qty_raw = str(row.get(col_qty, "0")) if col_qty else "0"
+            try:
+                qty_default = int(float(qty_raw)) if qty_raw.strip() else 0
+            except ValueError:
+                qty_default = 0
+            e_qty = st.number_input("Qty", min_value=0, step=1, value=qty_default, key=f"e_qty_{kode_val}")
+        with c2:
+            e_uom = st.text_input(
+                "UoM *", value=str(row.get(col_uom, "")) if col_uom else "", key=f"e_uom_{kode_val}"
+            )
+            e_deskripsi = st.text_area(
+                "Deskripsi", value=str(row.get(col_deskripsi, "")) if col_deskripsi else "", key=f"e_desk_{kode_val}"
+            )
+            e_foto1 = st.file_uploader(
+                "Ganti Foto 1 (kosongkan jika tidak diganti)",
+                type=["png", "jpg", "jpeg"],
+                key=f"e_foto1_{kode_val}",
+            )
+            e_foto2 = st.file_uploader(
+                "Ganti Foto 2 (kosongkan jika tidak diganti)",
+                type=["png", "jpg", "jpeg"],
+                key=f"e_foto2_{kode_val}",
+            )
+
+        col_save, col_cancel = st.columns(2)
+        with col_save:
+            save_clicked = st.form_submit_button("💾 Simpan Perubahan", use_container_width=True)
+        with col_cancel:
+            cancel_clicked = st.form_submit_button("Batal", use_container_width=True)
+
+        if cancel_clicked:
+            st.session_state["edit_target"] = None
+            st.rerun()
+
+        if save_clicked:
+            if not (e_lokasi_rak and e_kode_material and e_nama_barang and e_uom):
+                st.error("Mohon lengkapi semua kolom bertanda *.")
+            elif APPS_SCRIPT_URL.startswith("ISI_URL"):
+                st.error("APPS_SCRIPT_URL belum diisi di kode.")
+            else:
+                with st.spinner("Menyimpan perubahan..."):
+                    try:
+                        result = submit_update_item(
+                            kode_material_asli=kode_val,
+                            lokasi_rak=e_lokasi_rak,
+                            kode_material=e_kode_material,
+                            nama_barang=e_nama_barang,
+                            qty=e_qty,
+                            uom=e_uom,
+                            deskripsi=e_deskripsi,
+                            foto1=e_foto1,
+                            foto2=e_foto2,
+                            keep_foto1=(e_foto1 is None),
+                            keep_foto2=(e_foto2 is None),
+                        )
+                        if result.get("success"):
+                            load_database.clear()
+                            st.session_state["edit_target"] = None
+                            st.success(result.get("message", "Data berhasil diperbarui!"))
+                            st.rerun()
+                        else:
+                            st.error(result.get("message", "Gagal memperbarui data."))
+                    except Exception as e:
+                        st.error(f"Gagal memperbarui data: {e}")
+
+
+# ==============================================================================
+# 🗂️ TAB: PENCARIAN (dengan tombol Edit inline) | TAMBAH DATA
 # ==============================================================================
 st.title("Katalog Komponen")
 
-tab_cari, tab_tambah, tab_edit = st.tabs(
-    ["🔍 Cari Barang", "➕ Tambah Data Barang", "✏️ Edit Data Barang"]
-)
+tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
 
 try:
     df_raw, df_clean = load_database(DATABASE_URL)
@@ -176,7 +258,7 @@ except Exception as e:
     st.error(f"Gagal memuat spreadsheet: {e}")
     st.stop()
 
-# cari nama kolom asli (case-insensitive) supaya tidak error kalau ada spasi/beda kapital
+
 def find_col(name_lower):
     for c in df_raw.columns:
         if c.strip().lower() == name_lower:
@@ -195,7 +277,7 @@ photo_cols = [
 ]
 
 # ------------------------------------------------------------------------------
-# TAB 1: PENCARIAN
+# TAB 1: PENCARIAN + EDIT INLINE
 # ------------------------------------------------------------------------------
 with tab_cari:
     with st.container(border=True, key="search_bar"):
@@ -240,8 +322,10 @@ with tab_cari:
             EXCLUDE_KEYWORDS = ["link", "foto", "drive", "url", "uom"]
 
             for index, row in results_df.iterrows():
+                kode_val = str(row.get(col_kode, "")).strip() if col_kode else str(index)
+
                 with st.container():
-                    col_foto, col_detail = st.columns([1, 3.5])
+                    col_foto, col_detail, col_action = st.columns([1, 3, 0.8])
 
                     with col_foto:
                         imgs = []
@@ -278,6 +362,23 @@ with tab_cari:
                                 st.markdown(f"**{col_clean} :** {val_display} {uom_val}".strip())
                             else:
                                 st.markdown(f"**{col_clean} :** {val_display}")
+
+                    with col_action:
+                        if col_kode is not None:
+                            if st.button("✏️ Edit", key=f"btn_edit_{index}", use_container_width=True):
+                                st.session_state["edit_target"] = (
+                                    None if st.session_state.get("edit_target") == kode_val else kode_val
+                                )
+                                st.rerun()
+
+                    if col_kode is not None and st.session_state.get("edit_target") == kode_val:
+                        st.markdown("**Edit data barang ini:**")
+                        # ambil baris terbaru dari df_raw (bukan df_clean) untuk isi form
+                        row_raw_match = df_raw[df_raw[col_kode].astype(str).str.strip() == kode_val]
+                        row_raw = row_raw_match.iloc[0] if not row_raw_match.empty else row
+                        render_edit_form(
+                            row_raw, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_deskripsi, photo_cols
+                        )
 
                 st.divider()
 
@@ -324,112 +425,3 @@ with tab_tambah:
                             st.error(result.get("message", "Gagal menyimpan data."))
                     except Exception as e:
                         st.error(f"Gagal menyimpan data: {e}")
-
-# ------------------------------------------------------------------------------
-# TAB 3: EDIT DATA (untuk melengkapi/memperbaiki data yang sudah ada)
-# ------------------------------------------------------------------------------
-with tab_edit:
-    st.subheader("Edit / Lengkapi Data Barang")
-
-    if col_kode is None:
-        st.error("Kolom 'Kode Material' tidak ditemukan di spreadsheet.")
-    elif df_raw.empty:
-        st.info("Belum ada data di spreadsheet.")
-    else:
-        # buat daftar pilihan "Kode Material - Nama Barang"
-        options = []
-        for _, r in df_raw.iterrows():
-            kode_val = str(r.get(col_kode, "")).strip()
-            nama_val = str(r.get(col_nama, "")).strip() if col_nama else ""
-            if kode_val:
-                label = f"{kode_val} — {nama_val}" if nama_val else kode_val
-                options.append((label, kode_val))
-
-        if not options:
-            st.info("Tidak ada data dengan Kode Material yang bisa dipilih.")
-        else:
-            labels = [o[0] for o in options]
-            selected_label = st.selectbox("Pilih data yang mau diedit", labels, key="edit_select")
-            selected_kode = dict(options)[selected_label]
-
-            # ambil baris data yang dipilih
-            row_match = df_raw[df_raw[col_kode].astype(str).str.strip() == selected_kode]
-            if row_match.empty:
-                st.warning("Data tidak ditemukan, coba refresh halaman.")
-            else:
-                row = row_match.iloc[0]
-
-                existing_foto_links = [str(row.get(pc, "")).strip() for pc in photo_cols if str(row.get(pc, "")).strip()]
-                if existing_foto_links:
-                    st.caption("Foto saat ini:")
-                    cols_preview = st.columns(len(existing_foto_links))
-                    for i, link in enumerate(existing_foto_links):
-                        img = load_image_from_url(link)
-                        with cols_preview[i]:
-                            if img:
-                                st.image(img, width=120)
-                            else:
-                                st.caption("(gagal preview)")
-
-                with st.form("form_edit_barang"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        e_lokasi_rak = st.text_input(
-                            "Lokasi Rak *", value=str(row.get(col_lokasi, "")) if col_lokasi else ""
-                        )
-                        e_kode_material = st.text_input("Kode Material *", value=str(row.get(col_kode, "")))
-                        e_nama_barang = st.text_input(
-                            "Nama Barang *", value=str(row.get(col_nama, "")) if col_nama else ""
-                        )
-                        qty_raw = str(row.get(col_qty, "0")) if col_qty else "0"
-                        try:
-                            qty_default = int(float(qty_raw)) if qty_raw.strip() else 0
-                        except ValueError:
-                            qty_default = 0
-                        e_qty = st.number_input("Qty", min_value=0, step=1, value=qty_default)
-                    with c2:
-                        e_uom = st.text_input("UoM *", value=str(row.get(col_uom, "")) if col_uom else "")
-                        e_deskripsi = st.text_area(
-                            "Deskripsi", value=str(row.get(col_deskripsi, "")) if col_deskripsi else ""
-                        )
-                        e_foto1 = st.file_uploader(
-                            "Ganti Foto 1 (kosongkan jika tidak diganti)",
-                            type=["png", "jpg", "jpeg"],
-                            key="edit_foto1",
-                        )
-                        e_foto2 = st.file_uploader(
-                            "Ganti Foto 2 (kosongkan jika tidak diganti)",
-                            type=["png", "jpg", "jpeg"],
-                            key="edit_foto2",
-                        )
-
-                    submitted_edit = st.form_submit_button("💾 Simpan Perubahan", use_container_width=True)
-
-                    if submitted_edit:
-                        if not (e_lokasi_rak and e_kode_material and e_nama_barang and e_uom):
-                            st.error("Mohon lengkapi semua kolom bertanda *.")
-                        elif APPS_SCRIPT_URL.startswith("ISI_URL"):
-                            st.error("APPS_SCRIPT_URL belum diisi di kode.")
-                        else:
-                            with st.spinner("Menyimpan perubahan..."):
-                                try:
-                                    result = submit_update_item(
-                                        kode_material_asli=selected_kode,
-                                        lokasi_rak=e_lokasi_rak,
-                                        kode_material=e_kode_material,
-                                        nama_barang=e_nama_barang,
-                                        qty=e_qty,
-                                        uom=e_uom,
-                                        deskripsi=e_deskripsi,
-                                        foto1=e_foto1,
-                                        foto2=e_foto2,
-                                        keep_foto1=(e_foto1 is None),
-                                        keep_foto2=(e_foto2 is None),
-                                    )
-                                    if result.get("success"):
-                                        load_database.clear()
-                                        st.success(result.get("message", "Data berhasil diperbarui!"))
-                                    else:
-                                        st.error(result.get("message", "Gagal memperbarui data."))
-                                except Exception as e:
-                                    st.error(f"Gagal memperbarui data: {e}")
