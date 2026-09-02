@@ -13,7 +13,7 @@ from PIL import Image
 DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTihRlqwwhyxJSpVMW4WH15XM_rx2yLGfXCjbOn-SbEetgs5vRn8OWEFqO_ov-BgMwP/pub?output=csv"
 
 # URL Web App hasil deploy Apps Script (yang berakhiran /exec)
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz6Af4sgD0fHsTQtxzYzz3bc0wMYf5ET-_YZVQfX_hYhDHoUu4hnOoZJsA_Plaq-ZOd/exec"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwYAY96yl2OROWECeItHTf7E_qA4jz8mWCpAre2nMseRrGE8zj7eZaTbNN6KB97itwC/exec"
 
 st.set_page_config(page_title="Katalog Komponen", layout="wide")
 
@@ -59,7 +59,7 @@ st.markdown(
 )
 
 
-# --- CACHE DATABASE (untuk fitur pencarian) ---
+# --- CACHE DATABASE (untuk fitur pencarian & edit) ---
 @st.cache_data(ttl=300, show_spinner=False)
 def load_database(url):
     df_raw = pd.read_csv(url)
@@ -105,7 +105,7 @@ def reset_search():
 
 
 # ==============================================================================
-# 🌐 KIRIM DATA + FOTO KE APPS SCRIPT (bukan lewat service account)
+# 🌐 KIRIM DATA + FOTO KE APPS SCRIPT
 # ==============================================================================
 def file_to_payload(uploaded_file):
     if uploaded_file is None:
@@ -119,8 +119,15 @@ def file_to_payload(uploaded_file):
     }
 
 
-def submit_to_apps_script(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2):
+def call_apps_script(payload):
+    resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def submit_new_item(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2):
     payload = {
+        "action": "add",
         "lokasiRak": lokasi_rak,
         "kodeMaterial": kode_material,
         "namaBarang": nama_barang,
@@ -130,34 +137,67 @@ def submit_to_apps_script(lokasi_rak, kode_material, nama_barang, qty, uom, desk
         "foto1": file_to_payload(foto1),
         "foto2": file_to_payload(foto2),
     }
-    resp = requests.post(APPS_SCRIPT_URL, json=payload, timeout=60)
-    resp.raise_for_status()
-    return resp.json()
+    return call_apps_script(payload)
+
+
+def submit_update_item(
+    kode_material_asli, lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
+    foto1, foto2, keep_foto1, keep_foto2,
+):
+    payload = {
+        "action": "update",
+        "kodeMaterialAsli": kode_material_asli,
+        "lokasiRak": lokasi_rak,
+        "kodeMaterial": kode_material,
+        "namaBarang": nama_barang,
+        "qty": qty,
+        "uom": uom,
+        "deskripsi": deskripsi,
+        "foto1": file_to_payload(foto1),
+        "foto2": file_to_payload(foto2),
+        "keepFoto1": keep_foto1,
+        "keepFoto2": keep_foto2,
+    }
+    return call_apps_script(payload)
 
 
 # ==============================================================================
-# 🗂️ TAB: PENCARIAN  |  TAMBAH DATA
+# 🗂️ TAB: PENCARIAN | TAMBAH DATA | EDIT DATA
 # ==============================================================================
 st.title("Katalog Komponen")
 
-tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
+tab_cari, tab_tambah, tab_edit = st.tabs(
+    ["🔍 Cari Barang", "➕ Tambah Data Barang", "✏️ Edit Data Barang"]
+)
+
+try:
+    df_raw, df_clean = load_database(DATABASE_URL)
+except Exception as e:
+    st.error(f"Gagal memuat spreadsheet: {e}")
+    st.stop()
+
+# cari nama kolom asli (case-insensitive) supaya tidak error kalau ada spasi/beda kapital
+def find_col(name_lower):
+    for c in df_raw.columns:
+        if c.strip().lower() == name_lower:
+            return c
+    return None
+
+
+col_lokasi = find_col("lokasi rak")
+col_kode = find_col("kode material")
+col_nama = find_col("nama barang")
+col_qty = find_col("qty")
+col_uom = find_col("uom")
+col_deskripsi = find_col("deskripsi")
+photo_cols = [
+    c for c in df_raw.columns if any(kw in c.lower() for kw in ["link", "foto", "drive", "url"])
+]
 
 # ------------------------------------------------------------------------------
-# TAB 1: PENCARIAN (tidak berubah)
+# TAB 1: PENCARIAN
 # ------------------------------------------------------------------------------
 with tab_cari:
-    try:
-        df_raw, df_clean = load_database(DATABASE_URL)
-    except Exception as e:
-        st.error(f"Gagal memuat spreadsheet: {e}")
-        st.stop()
-
-    photo_cols = [
-        c
-        for c in df_raw.columns
-        if any(kw in c.lower() for kw in ["link", "foto", "drive", "url"])
-    ]
-
     with st.container(border=True, key="search_bar"):
         col_search, col_reset = st.columns([9, 0.7], vertical_alignment="center")
 
@@ -242,7 +282,7 @@ with tab_cari:
                 st.divider()
 
 # ------------------------------------------------------------------------------
-# TAB 2: TAMBAH DATA BARU (kirim ke Apps Script, bukan service account)
+# TAB 2: TAMBAH DATA BARU
 # ------------------------------------------------------------------------------
 with tab_tambah:
     st.subheader("Tambah Data Barang Baru")
@@ -261,8 +301,8 @@ with tab_tambah:
         with c2:
             uom = st.text_input("UoM (PCS, BOX, dll) *")
             deskripsi = st.text_area("Deskripsi")
-            foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="foto1")
-            foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="foto2")
+            foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="add_foto1")
+            foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="add_foto2")
 
         submitted = st.form_submit_button("💾 Simpan Data", use_container_width=True)
 
@@ -270,11 +310,11 @@ with tab_tambah:
             if not (lokasi_rak and kode_material and nama_barang and uom):
                 st.error("Mohon lengkapi semua kolom bertanda *.")
             elif APPS_SCRIPT_URL.startswith("ISI_URL"):
-                st.error("APPS_SCRIPT_URL belum diisi di kode. Lihat instruksi deploy Apps Script.")
+                st.error("APPS_SCRIPT_URL belum diisi di kode.")
             else:
                 with st.spinner("Mengupload foto & menyimpan data..."):
                     try:
-                        result = submit_to_apps_script(
+                        result = submit_new_item(
                             lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2
                         )
                         if result.get("success"):
@@ -284,3 +324,112 @@ with tab_tambah:
                             st.error(result.get("message", "Gagal menyimpan data."))
                     except Exception as e:
                         st.error(f"Gagal menyimpan data: {e}")
+
+# ------------------------------------------------------------------------------
+# TAB 3: EDIT DATA (untuk melengkapi/memperbaiki data yang sudah ada)
+# ------------------------------------------------------------------------------
+with tab_edit:
+    st.subheader("Edit / Lengkapi Data Barang")
+
+    if col_kode is None:
+        st.error("Kolom 'Kode Material' tidak ditemukan di spreadsheet.")
+    elif df_raw.empty:
+        st.info("Belum ada data di spreadsheet.")
+    else:
+        # buat daftar pilihan "Kode Material - Nama Barang"
+        options = []
+        for _, r in df_raw.iterrows():
+            kode_val = str(r.get(col_kode, "")).strip()
+            nama_val = str(r.get(col_nama, "")).strip() if col_nama else ""
+            if kode_val:
+                label = f"{kode_val} — {nama_val}" if nama_val else kode_val
+                options.append((label, kode_val))
+
+        if not options:
+            st.info("Tidak ada data dengan Kode Material yang bisa dipilih.")
+        else:
+            labels = [o[0] for o in options]
+            selected_label = st.selectbox("Pilih data yang mau diedit", labels, key="edit_select")
+            selected_kode = dict(options)[selected_label]
+
+            # ambil baris data yang dipilih
+            row_match = df_raw[df_raw[col_kode].astype(str).str.strip() == selected_kode]
+            if row_match.empty:
+                st.warning("Data tidak ditemukan, coba refresh halaman.")
+            else:
+                row = row_match.iloc[0]
+
+                existing_foto_links = [str(row.get(pc, "")).strip() for pc in photo_cols if str(row.get(pc, "")).strip()]
+                if existing_foto_links:
+                    st.caption("Foto saat ini:")
+                    cols_preview = st.columns(len(existing_foto_links))
+                    for i, link in enumerate(existing_foto_links):
+                        img = load_image_from_url(link)
+                        with cols_preview[i]:
+                            if img:
+                                st.image(img, width=120)
+                            else:
+                                st.caption("(gagal preview)")
+
+                with st.form("form_edit_barang"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        e_lokasi_rak = st.text_input(
+                            "Lokasi Rak *", value=str(row.get(col_lokasi, "")) if col_lokasi else ""
+                        )
+                        e_kode_material = st.text_input("Kode Material *", value=str(row.get(col_kode, "")))
+                        e_nama_barang = st.text_input(
+                            "Nama Barang *", value=str(row.get(col_nama, "")) if col_nama else ""
+                        )
+                        qty_raw = str(row.get(col_qty, "0")) if col_qty else "0"
+                        try:
+                            qty_default = int(float(qty_raw)) if qty_raw.strip() else 0
+                        except ValueError:
+                            qty_default = 0
+                        e_qty = st.number_input("Qty", min_value=0, step=1, value=qty_default)
+                    with c2:
+                        e_uom = st.text_input("UoM *", value=str(row.get(col_uom, "")) if col_uom else "")
+                        e_deskripsi = st.text_area(
+                            "Deskripsi", value=str(row.get(col_deskripsi, "")) if col_deskripsi else ""
+                        )
+                        e_foto1 = st.file_uploader(
+                            "Ganti Foto 1 (kosongkan jika tidak diganti)",
+                            type=["png", "jpg", "jpeg"],
+                            key="edit_foto1",
+                        )
+                        e_foto2 = st.file_uploader(
+                            "Ganti Foto 2 (kosongkan jika tidak diganti)",
+                            type=["png", "jpg", "jpeg"],
+                            key="edit_foto2",
+                        )
+
+                    submitted_edit = st.form_submit_button("💾 Simpan Perubahan", use_container_width=True)
+
+                    if submitted_edit:
+                        if not (e_lokasi_rak and e_kode_material and e_nama_barang and e_uom):
+                            st.error("Mohon lengkapi semua kolom bertanda *.")
+                        elif APPS_SCRIPT_URL.startswith("ISI_URL"):
+                            st.error("APPS_SCRIPT_URL belum diisi di kode.")
+                        else:
+                            with st.spinner("Menyimpan perubahan..."):
+                                try:
+                                    result = submit_update_item(
+                                        kode_material_asli=selected_kode,
+                                        lokasi_rak=e_lokasi_rak,
+                                        kode_material=e_kode_material,
+                                        nama_barang=e_nama_barang,
+                                        qty=e_qty,
+                                        uom=e_uom,
+                                        deskripsi=e_deskripsi,
+                                        foto1=e_foto1,
+                                        foto2=e_foto2,
+                                        keep_foto1=(e_foto1 is None),
+                                        keep_foto2=(e_foto2 is None),
+                                    )
+                                    if result.get("success"):
+                                        load_database.clear()
+                                        st.success(result.get("message", "Data berhasil diperbarui!"))
+                                    else:
+                                        st.error(result.get("message", "Gagal memperbarui data."))
+                                except Exception as e:
+                                    st.error(f"Gagal memperbarui data: {e}")
