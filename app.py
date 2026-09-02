@@ -368,14 +368,6 @@ with st.container(border=True, key="search_bar"):
                 " untuk lebih mengutamakan bentuk objek."
             ),
         )
-        st.slider(
-            "Ambang Batas Kemiripan (%)",
-            min_value=30,
-            max_value=95,
-            value=70,
-            step=5,
-            key="sim_threshold",
-        )
 
       option = st.radio(
           "Pilih Opsi",
@@ -424,20 +416,17 @@ active_text_query = search_query.strip()
 # --- PRATINJAU FOTO & TOMBOL HAPUS (❌) ---
 if active_photo:
   with st.container(border=True):
-    col_img_thumb, col_img_info, col_img_btn = st.columns(
-        [1, 6, 2], vertical_alignment="center"
+    col_img_thumb, col_img_btn = st.columns(
+        [1, 1], vertical_alignment="center"
     )
     with col_img_thumb:
-      st.image(active_photo, width=65)
-    with col_img_info:
-      st.markdown("**Foto Acuan Terlampir**")
-      st.caption("Menampilkan hasil berdasarkan kemiripan foto.")
+      st.image(active_photo, width=90)
     with col_img_btn:
       st.button(
-          "❌ Hapus Foto",
+          "❌",
           on_click=clear_photo,
           type="secondary",
-          use_container_width=True,
+          key="btn_hapus_foto_acuan",
       )
 
 st.markdown("---")
@@ -468,7 +457,6 @@ else:
   if active_photo:
     shape_weight = st.session_state.get("shape_weight", 0.6)
     color_weight = 1.0 - shape_weight
-    sim_threshold = st.session_state.get("sim_threshold", 70)
 
     with st.spinner("Menganalisis kemiripan objek (bentuk & warna)..."):
       query_image = Image.open(active_photo)
@@ -528,9 +516,6 @@ else:
       ]
       filtered_df["Loaded_Images"] = loaded_images_dict
 
-      filtered_df = filtered_df[
-          filtered_df["Tingkat Kemiripan (%)"] >= sim_threshold
-      ]
       results_df = filtered_df.sort_values(
           by="Tingkat Kemiripan (%)", ascending=False
       )
@@ -539,14 +524,7 @@ else:
 
   # Tampilan Data Output
   if results_df.empty:
-    if active_photo:
-      st.warning(
-          "Tidak ada barang yang cocok dengan tingkat kemiripan di atas"
-          f" {st.session_state.get('sim_threshold', 70)}%. Coba turunkan"
-          " ambang batas atau geser bobot bentuk/warna di ⚙️ Pengaturan."
-      )
-    else:
-      st.warning("Tidak ada data barang yang sesuai dengan pencarian Anda.")
+    st.warning("Tidak ada data barang yang sesuai dengan pencarian Anda.")
   else:
     EXCLUDE_KEYWORDS = [
         "link",
