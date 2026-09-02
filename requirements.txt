@@ -1,9 +1,4 @@
-streamlit>=1.40
+streamlit>=1.32
 pandas
-torch
-torchvision
 Pillow
 requests
-scikit-learn
-opencv-python-headless
-SpeechRecognition
