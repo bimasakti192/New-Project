@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.40
 pandas
 torch
 torchvision
@@ -6,3 +6,4 @@ Pillow
 requests
 scikit-learn
 opencv-python-headless
+SpeechRecognition
