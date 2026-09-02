@@ -2,6 +2,8 @@ import base64
 import re
 from io import BytesIO
 
+import cv2
+import numpy as np
 import pandas as pd
 from PIL import Image
 import requests
@@ -132,6 +134,68 @@ def load_image_from_url(url):
   return None
 
 
+def auto_crop_object(image, margin_ratio=0.06):
+  """Memotong area di luar objek utama berdasarkan kontur terbesar,
+  supaya fitur yang diekstrak fokus ke objek, bukan background."""
+  img_rgb = np.array(image.convert("RGB"))
+  gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+  blur = cv2.GaussianBlur(gray, (5, 5), 0)
+  _, thresh = cv2.threshold(
+      blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+  )
+
+  contours, _ = cv2.findContours(
+      thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+  )
+  if not contours:
+    return image
+
+  largest = max(contours, key=cv2.contourArea)
+  x, y, w, h = cv2.boundingRect(largest)
+  img_h, img_w = img_rgb.shape[:2]
+  area_ratio = (w * h) / (img_w * img_h)
+
+  # Jika kontur terlalu kecil atau hampir memenuhi seluruh gambar,
+  # deteksi dianggap tidak andal -> pakai gambar asli.
+  if area_ratio < 0.02 or area_ratio > 0.97:
+    return image
+
+  mx, my = int(w * margin_ratio), int(h * margin_ratio)
+  x0, y0 = max(x - mx, 0), max(y - my, 0)
+  x1, y1 = min(x + w + mx, img_w), min(y + h + my, img_h)
+  return image.crop((x0, y0, x1, y1))
+
+
+def pad_to_square(image, fill=(255, 255, 255)):
+  """Menambahkan padding agar rasio bentuk objek tidak melar/gepeng
+  saat di-resize ke ukuran persegi untuk CNN."""
+  w, h = image.size
+  size = max(w, h)
+  canvas = Image.new("RGB", (size, size), fill)
+  canvas.paste(image, ((size - w) // 2, (size - h) // 2))
+  return canvas
+
+
+def compute_color_histogram(image, grid=3, bins=8):
+  """Histogram warna HSV per-grid, supaya posisi warna pada objek
+  (bukan cuma rata-rata warna) ikut diperhitungkan."""
+  resized = np.array(image.resize((90, 90)).convert("RGB"))
+  hsv = cv2.cvtColor(resized, cv2.COLOR_RGB2HSV)
+  h, w, _ = hsv.shape
+  cell_h, cell_w = h // grid, w // grid
+
+  feats = []
+  for i in range(grid):
+    for j in range(grid):
+      cell = hsv[
+          i * cell_h : (i + 1) * cell_h, j * cell_w : (j + 1) * cell_w
+      ]
+      hist = cv2.calcHist([cell], [0, 1], None, [bins, bins], [0, 180, 0, 256])
+      hist = cv2.normalize(hist, hist).flatten()
+      feats.append(hist)
+  return np.concatenate(feats)
+
+
 def extract_features(image):
   if image.mode != "RGB":
     image = image.convert("RGB")
@@ -141,12 +205,22 @@ def extract_features(image):
   return features.squeeze().numpy()
 
 
+def extract_combined_features(image):
+  """Menghasilkan fitur bentuk (CNN) dan fitur warna (histogram spasial)
+  dari objek yang sudah di-crop & di-padding, terpisah dari background."""
+  cropped = auto_crop_object(image)
+  squared = pad_to_square(cropped)
+  shape_feat = extract_features(squared)
+  color_feat = compute_color_histogram(squared)
+  return shape_feat, color_feat
+
+
 @st.cache_data(show_spinner=False)
-def get_cached_image_features(url):
+def get_cached_combined_features(url):
   img = load_image_from_url(url)
   if img:
-    return extract_features(img)
-  return None
+    return extract_combined_features(img)
+  return None, None
 
 
 def normalize_text(text):
@@ -280,6 +354,29 @@ with st.container(border=True, key="search_bar"):
   with col_plus:
     with st.popover("➕", help="Tambah foto acuan", use_container_width=True):
       st.markdown("📎 **Opsi Foto**")
+
+      with st.expander("⚙️ Pengaturan Pencocokan Gambar"):
+        st.slider(
+            "Fokus Bentuk ↔ Warna",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.6,
+            step=0.05,
+            key="shape_weight",
+            help=(
+                "Geser ke kiri untuk lebih mengutamakan warna, ke kanan"
+                " untuk lebih mengutamakan bentuk objek."
+            ),
+        )
+        st.slider(
+            "Ambang Batas Kemiripan (%)",
+            min_value=30,
+            max_value=95,
+            value=70,
+            step=5,
+            key="sim_threshold",
+        )
+
       option = st.radio(
           "Pilih Opsi",
           ["Upload File", "Ambil Foto"],
@@ -367,41 +464,73 @@ else:
     )
     filtered_df = filtered_df[mask]
 
-  # Pencarian Gambar AI
+  # Pencarian Gambar AI (kombinasi kemiripan bentuk + warna)
   if active_photo:
-    with st.spinner("Menganalisis kemiripan gambar..."):
+    shape_weight = st.session_state.get("shape_weight", 0.6)
+    color_weight = 1.0 - shape_weight
+    sim_threshold = st.session_state.get("sim_threshold", 70)
+
+    with st.spinner("Menganalisis kemiripan objek (bentuk & warna)..."):
       query_image = Image.open(active_photo)
-      query_features = extract_features(query_image)
+      query_shape_feat, query_color_feat = extract_combined_features(
+          query_image
+      )
 
       similarities = []
+      shape_scores = []
+      color_scores = []
       loaded_images_dict = []
 
       for idx, row in filtered_df.iterrows():
         max_sim = -1
+        best_shape_sim = 0.0
+        best_color_sim = 0.0
         row_images = []
 
         for p_col in photo_cols:
           drive_url = str(row.get(p_col, "")).strip()
           if drive_url:
-            db_feat = get_cached_image_features(drive_url)
-            if db_feat is not None:
-              sim_score = cosine_similarity([query_features], [db_feat])[0][0]
-              if sim_score > max_sim:
-                max_sim = sim_score
+            db_shape_feat, db_color_feat = get_cached_combined_features(
+                drive_url
+            )
+            if db_shape_feat is not None:
+              sim_shape = cosine_similarity(
+                  [query_shape_feat], [db_shape_feat]
+              )[0][0]
+              sim_color = cosine_similarity(
+                  [query_color_feat], [db_color_feat]
+              )[0][0]
+              combined_sim = (
+                  shape_weight * sim_shape + color_weight * sim_color
+              )
+              if combined_sim > max_sim:
+                max_sim = combined_sim
+                best_shape_sim = sim_shape
+                best_color_sim = sim_color
 
             img = load_image_from_url(drive_url)
             if img:
               row_images.append(img)
 
         similarities.append(max_sim)
+        shape_scores.append(best_shape_sim)
+        color_scores.append(best_color_sim)
         loaded_images_dict.append(row_images)
 
       filtered_df["Tingkat Kemiripan (%)"] = [
           round(s * 100, 2) if s >= 0 else 0 for s in similarities
       ]
+      filtered_df["Kemiripan Bentuk (%)"] = [
+          round(s * 100, 2) for s in shape_scores
+      ]
+      filtered_df["Kemiripan Warna (%)"] = [
+          round(s * 100, 2) for s in color_scores
+      ]
       filtered_df["Loaded_Images"] = loaded_images_dict
 
-      filtered_df = filtered_df[filtered_df["Tingkat Kemiripan (%)"] >= 70]
+      filtered_df = filtered_df[
+          filtered_df["Tingkat Kemiripan (%)"] >= sim_threshold
+      ]
       results_df = filtered_df.sort_values(
           by="Tingkat Kemiripan (%)", ascending=False
       )
@@ -412,7 +541,9 @@ else:
   if results_df.empty:
     if active_photo:
       st.warning(
-          "Tidak ada barang yang cocok dengan tingkat kemiripan di atas 70%."
+          "Tidak ada barang yang cocok dengan tingkat kemiripan di atas"
+          f" {st.session_state.get('sim_threshold', 70)}%. Coba turunkan"
+          " ambang batas atau geser bobot bentuk/warna di ⚙️ Pengaturan."
       )
     else:
       st.warning("Tidak ada data barang yang sesuai dengan pencarian Anda.")
@@ -425,6 +556,8 @@ else:
         "uom",
         "loaded_images",
         "tingkat kemiripan (%)",
+        "kemiripan bentuk (%)",
+        "kemiripan warna (%)",
     ]
 
     for index, row in results_df.iterrows():
@@ -477,6 +610,8 @@ else:
           ):
             st.markdown(
                 f"**Kemiripan Foto :** {row['Tingkat Kemiripan (%)']}%"
+                f" &nbsp;·&nbsp; Bentuk: {row['Kemiripan Bentuk (%)']}%"
+                f" &nbsp;·&nbsp; Warna: {row['Kemiripan Warna (%)']}%"
             )
 
       st.divider()
