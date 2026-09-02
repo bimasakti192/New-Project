@@ -7,9 +7,9 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 import requests
+import speech_recognition as sr
 from sklearn.metrics.pairwise import cosine_similarity
 import streamlit as st
-import streamlit.components.v1 as components
 import torch
 import torchvision.models as models
 import torchvision.transforms as transforms
@@ -135,35 +135,48 @@ def load_image_from_url(url):
 
 
 def auto_crop_object(image, margin_ratio=0.06):
-  """Memotong area di luar objek utama berdasarkan kontur terbesar,
-  supaya fitur yang diekstrak fokus ke objek, bukan background."""
-  img_rgb = np.array(image.convert("RGB"))
-  gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
-  blur = cv2.GaussianBlur(gray, (5, 5), 0)
-  _, thresh = cv2.threshold(
-      blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
-  )
+  """Memotong area di luar objek utama pakai GrabCut, lebih tahan
+  terhadap background yang bervariasi/tidak konsisten dibanding
+  threshold sederhana. Mengembalikan gambar asli jika deteksi gagal
+  atau tidak meyakinkan (bukan error, tapi fallback aman)."""
+  try:
+    img_rgb = np.array(image.convert("RGB"))
+    h, w = img_rgb.shape[:2]
+    if h < 10 or w < 10:
+      return image
 
-  contours, _ = cv2.findContours(
-      thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-  )
-  if not contours:
+    mask = np.zeros((h, w), np.uint8)
+    bgd_model = np.zeros((1, 65), np.float64)
+    fgd_model = np.zeros((1, 65), np.float64)
+
+    # Asumsi awal: objek utama berada di area tengah foto.
+    mw, mh = max(int(w * 0.08), 1), max(int(h * 0.08), 1)
+    rect = (mw, mh, max(w - 2 * mw, 1), max(h - 2 * mh, 1))
+
+    cv2.grabCut(
+        img_rgb, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT
+    )
+    fg_mask = np.where((mask == 2) | (mask == 0), 0, 1).astype("uint8")
+    ys, xs = np.where(fg_mask == 1)
+    if len(xs) == 0 or len(ys) == 0:
+      return image
+
+    x0, x1 = int(xs.min()), int(xs.max())
+    y0, y1 = int(ys.min()), int(ys.max())
+    box_w, box_h = x1 - x0, y1 - y0
+    area_ratio = (box_w * box_h) / (w * h)
+
+    # Jika area terdeteksi terlalu kecil/besar, hasil dianggap tidak
+    # meyakinkan -> pakai gambar asli sebagai fallback.
+    if area_ratio < 0.03 or area_ratio > 0.98:
+      return image
+
+    mx, my = int(box_w * margin_ratio), int(box_h * margin_ratio)
+    x0c, y0c = max(x0 - mx, 0), max(y0 - my, 0)
+    x1c, y1c = min(x1 + mx, w), min(y1 + my, h)
+    return image.crop((x0c, y0c, x1c, y1c))
+  except Exception:
     return image
-
-  largest = max(contours, key=cv2.contourArea)
-  x, y, w, h = cv2.boundingRect(largest)
-  img_h, img_w = img_rgb.shape[:2]
-  area_ratio = (w * h) / (img_w * img_h)
-
-  # Jika kontur terlalu kecil atau hampir memenuhi seluruh gambar,
-  # deteksi dianggap tidak andal -> pakai gambar asli.
-  if area_ratio < 0.02 or area_ratio > 0.97:
-    return image
-
-  mx, my = int(w * margin_ratio), int(h * margin_ratio)
-  x0, y0 = max(x - mx, 0), max(y - my, 0)
-  x1, y1 = min(x + w + mx, img_w), min(y + h + my, img_h)
-  return image.crop((x0, y0, x1, y1))
 
 
 def pad_to_square(image, fill=(255, 255, 255)):
@@ -206,13 +219,20 @@ def extract_features(image):
 
 
 def extract_combined_features(image):
-  """Menghasilkan fitur bentuk (CNN) dan fitur warna (histogram spasial)
-  dari objek yang sudah di-crop & di-padding, terpisah dari background."""
-  cropped = auto_crop_object(image)
-  squared = pad_to_square(cropped)
-  shape_feat = extract_features(squared)
-  color_feat = compute_color_histogram(squared)
-  return shape_feat, color_feat
+  """Menghasilkan fitur bentuk (CNN) & warna (histogram spasial) dari
+  DUA varian gambar: hasil crop objek, dan gambar penuh apa adanya.
+  Dua varian ini dipakai sebagai jaring pengaman: kalau crop meleset
+  di satu sisi (query atau database), varian gambar penuh tetap bisa
+  menangkap kecocokan yang sebenarnya."""
+  full_squared = pad_to_square(image)
+  crop_squared = pad_to_square(auto_crop_object(image))
+
+  return {
+      "shape_full": extract_features(full_squared),
+      "color_full": compute_color_histogram(full_squared),
+      "shape_crop": extract_features(crop_squared),
+      "color_crop": compute_color_histogram(crop_squared),
+  }
 
 
 @st.cache_data(show_spinner=False)
@@ -220,7 +240,7 @@ def get_cached_combined_features(url):
   img = load_image_from_url(url)
   if img:
     return extract_combined_features(img)
-  return None, None
+  return None
 
 
 def normalize_text(text):
@@ -234,13 +254,21 @@ if "search_input" not in st.session_state:
   st.session_state["search_input"] = ""
 if "photo_key" not in st.session_state:
   st.session_state["photo_key"] = 0
+if "last_audio_id" not in st.session_state:
+  st.session_state["last_audio_id"] = None
 
-# Tangkap hasil pencarian suara dari browser via Query Parameter
-if "voice_search" in st.query_params:
-  voice_text = st.query_params["voice_search"]
-  st.session_state["search_input"] = voice_text
-  st.query_params.clear()
-  st.rerun()
+
+def transcribe_audio(audio_file, language="id-ID"):
+  """Mengubah rekaman suara (WAV dari st.audio_input) menjadi teks."""
+  recognizer = sr.Recognizer()
+  try:
+    with sr.AudioFile(audio_file) as source:
+      audio_data = recognizer.record(source)
+    return recognizer.recognize_google(audio_data, language=language)
+  except sr.UnknownValueError:
+    return None
+  except sr.RequestError:
+    return "__ERROR__"
 
 
 def clear_photo():
@@ -270,79 +298,6 @@ st.title("Pencarian & Katalog Komponen")
 
 uploaded_file = None
 captured_image = None
-
-VOICE_HTML = """
-<div style="font-family: sans-serif; text-align: center; padding: 5px;">
-    <p id="status" style="font-size: 13px; color: #555; margin-bottom: 8px;">
-        Klik tombol di bawah dan langsung bicara.<br>Sistem akan <b>otomatis berhenti</b> saat Anda selesai bicara.
-    </p>
-    <button id="btn-mic" style="
-        background-color: #d97757;
-        color: white;
-        border: none;
-        padding: 10px 16px;
-        border-radius: 8px;
-        font-weight: bold;
-        cursor: pointer;
-        width: 100%;
-        font-size: 14px;
-    ">
-        🎙️ Mulai Bicara
-    </button>
-</div>
-
-<script>
-const btn = document.getElementById('btn-mic');
-const status = document.getElementById('status');
-
-if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-    status.innerHTML = "<b style='color:red;'>Browser tidak mendukung (Gunakan Chrome/Edge/Safari).</b>";
-    btn.disabled = true;
-} else {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'id-ID';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-
-    btn.onclick = () => {
-        try {
-            recognition.start();
-        } catch(e) {}
-    };
-
-    recognition.onstart = () => {
-        status.innerHTML = "<b style='color: green;'>🔴 Mendengarkan... Silakan bicara sekarang!</b>";
-        btn.style.backgroundColor = "#28a745";
-        btn.innerText = "🔊 Sedang Mendengarkan...";
-    };
-
-    recognition.onspeechend = () => {
-        status.innerHTML = "⏳ Selesai bicara. Memproses...";
-        recognition.stop();
-    };
-
-    recognition.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        status.innerHTML = "✅ Terdengar: <b>" + transcript + "</b>";
-        const parentUrl = new URL(window.parent.location.href);
-        parentUrl.searchParams.set('voice_search', transcript);
-        window.parent.location.href = parentUrl.href;
-    };
-
-    recognition.onerror = (event) => {
-        status.innerHTML = "<b style='color:red;'>Suara tidak terdeteksi. Coba lagi.</b>";
-        btn.style.backgroundColor = "#d97757";
-        btn.innerText = "🎙️ Mulai Bicara";
-    };
-
-    recognition.onend = () => {
-        btn.style.backgroundColor = "#d97757";
-        btn.innerText = "🎙️ Mulai Bicara";
-    };
-}
-</script>
-"""
 
 # Frame Bar Input Utama — gaya pill/rounded
 with st.container(border=True, key="search_bar"):
@@ -395,10 +350,29 @@ with st.container(border=True, key="search_bar"):
         label_visibility="collapsed",
     )
 
-  # 3. TOMBOL MIC -> popover berisi voice recognition
+  # 3. TOMBOL MIC -> rekam suara native (bukan iframe) lalu transkripsi
   with col_mic:
     with st.popover("🎤", help="Cari dengan suara", use_container_width=True):
-      components.html(VOICE_HTML, height=140)
+      st.caption("Tekan rekam, ucapkan kata kunci, lalu tekan stop.")
+      audio_value = st.audio_input(
+          "Rekam suara", label_visibility="collapsed"
+      )
+      if audio_value is not None:
+        audio_hash = hash(audio_value.getvalue())
+        if audio_hash != st.session_state["last_audio_id"]:
+          st.session_state["last_audio_id"] = audio_hash
+          with st.spinner("Mengubah suara menjadi teks..."):
+            text = transcribe_audio(audio_value)
+          if text == "__ERROR__":
+            st.error(
+                "Gagal terhubung ke layanan pengenalan suara. Cek koneksi"
+                " internet."
+            )
+          elif text:
+            st.session_state["search_input"] = text
+            st.rerun()
+          else:
+            st.warning("Suara tidak terdengar jelas, coba rekam ulang.")
 
   # 4. TOMBOL RESET (ikon bulat aksen oranye)
   with col_reset:
@@ -460,9 +434,7 @@ else:
 
     with st.spinner("Menganalisis kemiripan objek (bentuk & warna)..."):
       query_image = Image.open(active_photo)
-      query_shape_feat, query_color_feat = extract_combined_features(
-          query_image
-      )
+      query_feat = extract_combined_features(query_image)
 
       similarities = []
       shape_scores = []
@@ -478,16 +450,25 @@ else:
         for p_col in photo_cols:
           drive_url = str(row.get(p_col, "")).strip()
           if drive_url:
-            db_shape_feat, db_color_feat = get_cached_combined_features(
-                drive_url
-            )
-            if db_shape_feat is not None:
-              sim_shape = cosine_similarity(
-                  [query_shape_feat], [db_shape_feat]
-              )[0][0]
-              sim_color = cosine_similarity(
-                  [query_color_feat], [db_color_feat]
-              )[0][0]
+            db_feat = get_cached_combined_features(drive_url)
+            if db_feat is not None:
+              # Bandingkan semua kombinasi varian crop/full (query x db)
+              # dan ambil yang terbaik -> jaring pengaman kalau crop
+              # meleset di salah satu sisi.
+              sim_shape = max(
+                  cosine_similarity(
+                      [query_feat[qk]], [db_feat[dk]]
+                  )[0][0]
+                  for qk in ("shape_crop", "shape_full")
+                  for dk in ("shape_crop", "shape_full")
+              )
+              sim_color = max(
+                  cosine_similarity(
+                      [query_feat[qk]], [db_feat[dk]]
+                  )[0][0]
+                  for qk in ("color_crop", "color_full")
+                  for dk in ("color_crop", "color_full")
+              )
               combined_sim = (
                   shape_weight * sim_shape + color_weight * sim_color
               )
