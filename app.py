@@ -166,41 +166,41 @@ def submit_update_item(
 # ==============================================================================
 # 🧩 KOMPONEN: form edit inline untuk satu barang
 # ==============================================================================
-def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_deskripsi, photo_cols):
+def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_deskripsi, photo_cols, unique_id):
     kode_val = str(row.get(col_kode, "")).strip()
 
-    with st.form(f"form_edit_{kode_val}"):
+    with st.form(f"form_edit_{unique_id}"):
         c1, c2 = st.columns(2)
         with c1:
             e_lokasi_rak = st.text_input(
-                "Lokasi Rak *", value=str(row.get(col_lokasi, "")) if col_lokasi else "", key=f"e_lokasi_{kode_val}"
+                "Lokasi Rak *", value=str(row.get(col_lokasi, "")) if col_lokasi else "", key=f"e_lokasi_{unique_id}"
             )
-            e_kode_material = st.text_input("Kode Material *", value=kode_val, key=f"e_kode_{kode_val}")
+            e_kode_material = st.text_input("Kode Material *", value=kode_val, key=f"e_kode_{unique_id}")
             e_nama_barang = st.text_input(
-                "Nama Barang *", value=str(row.get(col_nama, "")) if col_nama else "", key=f"e_nama_{kode_val}"
+                "Nama Barang *", value=str(row.get(col_nama, "")) if col_nama else "", key=f"e_nama_{unique_id}"
             )
             qty_raw = str(row.get(col_qty, "0")) if col_qty else "0"
             try:
                 qty_default = int(float(qty_raw)) if qty_raw.strip() else 0
             except ValueError:
                 qty_default = 0
-            e_qty = st.number_input("Qty", min_value=0, step=1, value=qty_default, key=f"e_qty_{kode_val}")
+            e_qty = st.number_input("Qty", min_value=0, step=1, value=qty_default, key=f"e_qty_{unique_id}")
         with c2:
             e_uom = st.text_input(
-                "UoM *", value=str(row.get(col_uom, "")) if col_uom else "", key=f"e_uom_{kode_val}"
+                "UoM *", value=str(row.get(col_uom, "")) if col_uom else "", key=f"e_uom_{unique_id}"
             )
             e_deskripsi = st.text_area(
-                "Deskripsi", value=str(row.get(col_deskripsi, "")) if col_deskripsi else "", key=f"e_desk_{kode_val}"
+                "Deskripsi", value=str(row.get(col_deskripsi, "")) if col_deskripsi else "", key=f"e_desk_{unique_id}"
             )
             e_foto1 = st.file_uploader(
                 "Ganti Foto 1 (kosongkan jika tidak diganti)",
                 type=["png", "jpg", "jpeg"],
-                key=f"e_foto1_{kode_val}",
+                key=f"e_foto1_{unique_id}",
             )
             e_foto2 = st.file_uploader(
                 "Ganti Foto 2 (kosongkan jika tidak diganti)",
                 type=["png", "jpg", "jpeg"],
-                key=f"e_foto2_{kode_val}",
+                key=f"e_foto2_{unique_id}",
             )
 
         col_save, col_cancel = st.columns(2)
@@ -365,19 +365,27 @@ with tab_cari:
 
                     with col_action:
                         if col_kode is not None:
+                            row_target = f"{kode_val}__{index}"
                             if st.button("✏️ Edit", key=f"btn_edit_{index}", use_container_width=True):
                                 st.session_state["edit_target"] = (
-                                    None if st.session_state.get("edit_target") == kode_val else kode_val
+                                    None if st.session_state.get("edit_target") == row_target else row_target
                                 )
                                 st.rerun()
 
-                    if col_kode is not None and st.session_state.get("edit_target") == kode_val:
+                    if col_kode is not None and st.session_state.get("edit_target") == f"{kode_val}__{index}":
                         st.markdown("**Edit data barang ini:**")
                         # ambil baris terbaru dari df_raw (bukan df_clean) untuk isi form
-                        row_raw_match = df_raw[df_raw[col_kode].astype(str).str.strip() == kode_val]
-                        row_raw = row_raw_match.iloc[0] if not row_raw_match.empty else row
+                        row_raw = df_raw.loc[index] if index in df_raw.index else row
                         render_edit_form(
-                            row_raw, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_deskripsi, photo_cols
+                            row_raw,
+                            col_kode,
+                            col_lokasi,
+                            col_nama,
+                            col_qty,
+                            col_uom,
+                            col_deskripsi,
+                            photo_cols,
+                            unique_id=f"{kode_val}__{index}",
                         )
 
                 st.divider()
