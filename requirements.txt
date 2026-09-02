@@ -5,3 +5,4 @@ torchvision
 Pillow
 requests
 scikit-learn
+opencv-python-headless
