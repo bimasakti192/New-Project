@@ -22,7 +22,7 @@ SPREADSHEET_ID = "https://docs.google.com/spreadsheets/d/1SyeWtAjKAFyDs8oDVxKhiQ
 SHEET_NAME = "Sheet1"  # ganti sesuai nama tab sheet kamu
 
 # ID folder Drive tempat foto baru akan disimpan
-DRIVE_FOLDER_ID = "https://drive.google.com/drive/folders/1UoMPOvUXmj2Ao9AWSE1f4-eQ7WgrTkZz?hl=ID"
+DRIVE_FOLDER_ID = "1UoMPOvUXmj2Ao9AWSE1f4-eQ7WgrTkZz"
 
 # Urutan kolom di sheet — HARUS sama persis urutannya dengan kolom asli.
 # Sesuaikan list ini kalau urutan/nama kolommu berbeda.
