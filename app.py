@@ -13,7 +13,7 @@ from PIL import Image
 DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTihRlqwwhyxJSpVMW4WH15XM_rx2yLGfXCjbOn-SbEetgs5vRn8OWEFqO_ov-BgMwP/pub?output=csv"
 
 # URL Web App hasil deploy Apps Script (yang berakhiran /exec)
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyDvFFjKQMkxvgIdqKKMHmJ2NOqry3mHsjvGdjVfhEF1zBMh03N1pA-m84sPRFgfTI1/exec"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz6Af4sgD0fHsTQtxzYzz3bc0wMYf5ET-_YZVQfX_hYhDHoUu4hnOoZJsA_Plaq-ZOd/exec"
 
 st.set_page_config(page_title="Katalog Komponen", layout="wide")
 
