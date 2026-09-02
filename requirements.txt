@@ -2,3 +2,6 @@ streamlit>=1.32
 pandas
 Pillow
 requests
+gspread
+google-auth
+google-api-python-client
