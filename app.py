@@ -415,8 +415,11 @@ if not active_text_query and not active_photo:
 else:
   filtered_df = df_clean.copy()
 
-  # Pencarian Teks Global (Semua Kolom)
-  if active_text_query:
+  # Pencarian Teks Global (Semua Kolom) — HANYA diterapkan jika tidak
+  # ada foto terlampir. Kalau ada foto, pencarian gambar harus mencakup
+  # SELURUH data; menyaring teks dulu bisa membuang barang yang benar
+  # sebelum sempat dibandingkan fotonya.
+  if active_text_query and not active_photo:
     norm_query = normalize_text(active_text_query)
     mask = (
         filtered_df.astype(str)
