@@ -472,15 +472,46 @@ def reset_search():
 # ==============================================================================
 # 🌐 KIRIM DATA + FOTO KE APPS SCRIPT
 # ==============================================================================
+MAX_PHOTO_DIMENSION = 1600  # sisi terpanjang foto setelah dikompres (px)
+JPEG_QUALITY = 75           # kualitas kompresi JPEG (0-100)
+
+
+def compress_image_bytes(raw_bytes, max_dimension=MAX_PHOTO_DIMENSION, quality=JPEG_QUALITY):
+    """Resize + kompres foto jadi JPEG supaya ukurannya jauh lebih kecil.
+    Kalau proses gagal (misal file bukan gambar valid), kembalikan bytes asli."""
+    try:
+        img = Image.open(BytesIO(raw_bytes))
+        img = img.convert("RGB")  # JPEG tidak mendukung channel alpha (PNG transparan, dll)
+        img.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    except Exception:
+        return raw_bytes, None
+
+
 def file_to_payload(uploaded_file):
     if uploaded_file is None:
         return None
+
     raw_bytes = uploaded_file.getvalue()
-    b64 = base64.b64encode(raw_bytes).decode("utf-8")
+    compressed_bytes, compressed_mime = compress_image_bytes(raw_bytes)
+
+    if compressed_mime:
+        base_name = uploaded_file.name.rsplit(".", 1)[0] if "." in uploaded_file.name else uploaded_file.name
+        file_name = f"{base_name}.jpg"
+        used_bytes = compressed_bytes
+        used_mime = compressed_mime
+    else:
+        file_name = uploaded_file.name
+        used_bytes = raw_bytes
+        used_mime = uploaded_file.type or "application/octet-stream"
+
+    b64 = base64.b64encode(used_bytes).decode("utf-8")
     return {
         "base64": b64,
-        "mimeType": uploaded_file.type or "application/octet-stream",
-        "fileName": uploaded_file.name,
+        "mimeType": used_mime,
+        "fileName": file_name,
     }
 
 
@@ -560,11 +591,15 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
                 type=["png", "jpg", "jpeg"],
                 key=f"e_foto1_{unique_id}",
             )
+            if e_foto1 is not None:
+                st.caption(f"📎 {e_foto1.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
             e_foto2 = st.file_uploader(
                 "Ganti Foto 2 (kosongkan jika tidak diganti)",
                 type=["png", "jpg", "jpeg"],
                 key=f"e_foto2_{unique_id}",
             )
+            if e_foto2 is not None:
+                st.caption(f"📎 {e_foto2.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
 
         col_save, col_cancel = st.columns(2)
         with col_save:
@@ -796,7 +831,7 @@ with tab_cari:
 # ------------------------------------------------------------------------------
 if CAN_ADD and tab_tambah is not None:
     with tab_tambah:
-        st.subheader("Tambah Data Barang Baru")
+        st.subheader("Tambah Data Barang Baru", anchor=False)
 
         with st.form("form_tambah_barang", clear_on_submit=True):
             c1, c2 = st.columns(2)
@@ -809,7 +844,11 @@ if CAN_ADD and tab_tambah is not None:
                 uom = st.text_input("UoM (PCS, BOX, dll) *")
                 deskripsi = st.text_area("Deskripsi")
                 foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="add_foto1")
+                if foto1 is not None:
+                    st.caption(f"📎 {foto1.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
                 foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="add_foto2")
+                if foto2 is not None:
+                    st.caption(f"📎 {foto2.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
 
             submitted = st.form_submit_button(
                 "💾 Simpan Data", use_container_width=True, type="primary"
