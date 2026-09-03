@@ -116,7 +116,9 @@ if "auth_username" not in st.session_state:
     st.stop()
 
 show_logout_button()
-IS_ADMIN = st.session_state.get("auth_role") == "admin"
+CURRENT_ROLE = st.session_state.get("auth_role")
+IS_ADMIN = CURRENT_ROLE == "admin"      # boleh cari, tambah, DAN edit
+CAN_ADD = CURRENT_ROLE in ("admin", "staff")  # semua yang login boleh tambah data
 
 
 # --- CACHE DATABASE ---
@@ -310,7 +312,7 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
 # ==============================================================================
 st.title("Katalog Komponen")
 
-if IS_ADMIN:
+if CAN_ADD:
     tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
 else:
     tab_cari = st.container()
@@ -461,7 +463,7 @@ with tab_cari:
 # ------------------------------------------------------------------------------
 # TAB TAMBAH DATA BARU (khusus admin)
 # ------------------------------------------------------------------------------
-if IS_ADMIN and tab_tambah is not None:
+if CAN_ADD and tab_tambah is not None:
     with tab_tambah:
         st.subheader("Tambah Data Barang Baru")
         st.caption(
