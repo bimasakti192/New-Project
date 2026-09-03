@@ -71,6 +71,9 @@ st.markdown(
         color: #ffffff !important;
         font-weight: 500;
     }
+    [data-testid="stImageCaption"] {
+        color: #ffffff !important;
+    }
 
     .greeting-text {
         text-align: center;
@@ -490,29 +493,60 @@ def compress_image_bytes(raw_bytes, max_dimension=MAX_PHOTO_DIMENSION, quality=J
         return raw_bytes, None
 
 
-def file_to_payload(uploaded_file):
-    if uploaded_file is None:
-        return None
-
-    raw_bytes = uploaded_file.getvalue()
+def bytes_to_payload(raw_bytes, file_name, mime_hint=None):
+    """Bungkus bytes gambar mentah jadi payload siap kirim ke Apps Script
+    (dikompres dulu kalau memungkinkan)."""
     compressed_bytes, compressed_mime = compress_image_bytes(raw_bytes)
 
     if compressed_mime:
-        base_name = uploaded_file.name.rsplit(".", 1)[0] if "." in uploaded_file.name else uploaded_file.name
-        file_name = f"{base_name}.jpg"
+        base_name = file_name.rsplit(".", 1)[0] if "." in file_name else file_name
+        used_name = f"{base_name}.jpg"
         used_bytes = compressed_bytes
         used_mime = compressed_mime
     else:
-        file_name = uploaded_file.name
+        used_name = file_name
         used_bytes = raw_bytes
-        used_mime = uploaded_file.type or "application/octet-stream"
+        used_mime = mime_hint or "application/octet-stream"
 
     b64 = base64.b64encode(used_bytes).decode("utf-8")
     return {
         "base64": b64,
         "mimeType": used_mime,
-        "fileName": file_name,
+        "fileName": used_name,
     }
+
+
+def file_to_payload(uploaded_file):
+    if uploaded_file is None:
+        return None
+    return bytes_to_payload(
+        uploaded_file.getvalue(), uploaded_file.name, uploaded_file.type
+    )
+
+
+def merge_two_images_bytes(foto1_bytes, foto2_bytes, gap=14, bg=(255, 255, 255)):
+    """Gabungkan 2 foto jadi 1 gambar (berdampingan/side-by-side), disamakan
+    tingginya dulu supaya rapi, lalu dikembalikan sebagai bytes JPEG."""
+    img1 = Image.open(BytesIO(foto1_bytes)).convert("RGB")
+    img2 = Image.open(BytesIO(foto2_bytes)).convert("RGB")
+
+    target_h = min(img1.height, img2.height, 900)
+
+    def resize_to_height(img, h):
+        w = max(int(img.width * (h / img.height)), 1)
+        return img.resize((w, h), Image.LANCZOS)
+
+    img1r = resize_to_height(img1, target_h)
+    img2r = resize_to_height(img2, target_h)
+
+    total_w = img1r.width + gap + img2r.width
+    canvas = Image.new("RGB", (total_w, target_h), bg)
+    canvas.paste(img1r, (0, 0))
+    canvas.paste(img2r, (img1r.width + gap, 0))
+
+    buf = BytesIO()
+    canvas.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+    return buf.getvalue()
 
 
 def call_apps_script(payload):
@@ -521,7 +555,10 @@ def call_apps_script(payload):
     return resp.json()
 
 
-def submit_new_item(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2):
+def submit_new_item(
+    lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
+    foto1, foto2, foto_gabungan_payload,
+):
     payload = {
         "action": "add",
         "lokasiRak": lokasi_rak,
@@ -532,6 +569,7 @@ def submit_new_item(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
         "deskripsi": deskripsi,
         "foto1": file_to_payload(foto1),
         "foto2": file_to_payload(foto2),
+        "fotoGabungan": foto_gabungan_payload,
     }
     return call_apps_script(payload)
 
@@ -539,6 +577,7 @@ def submit_new_item(lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
 def submit_update_item(
     kode_material_asli, lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
     foto1, foto2, keep_foto1, keep_foto2,
+    foto_gabungan_payload, keep_foto_gabungan,
 ):
     payload = {
         "action": "update",
@@ -553,6 +592,8 @@ def submit_update_item(
         "foto2": file_to_payload(foto2),
         "keepFoto1": keep_foto1,
         "keepFoto2": keep_foto2,
+        "fotoGabungan": foto_gabungan_payload,
+        "keepFotoGabungan": keep_foto_gabungan,
     }
     return call_apps_script(payload)
 
@@ -601,6 +642,15 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
             if e_foto2 is not None:
                 st.caption(f"📎 {e_foto2.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
 
+        e_foto_gabungan_payload = None
+        if e_foto1 is not None and e_foto2 is not None:
+            merged_bytes = merge_two_images_bytes(e_foto1.getvalue(), e_foto2.getvalue())
+            st.image(
+                merged_bytes,
+                caption="Pratinjau Foto Gabungan baru (otomatis dari Foto 1 + Foto 2)",
+            )
+            e_foto_gabungan_payload = bytes_to_payload(merged_bytes, "gabungan.jpg", "image/jpeg")
+
         col_save, col_cancel = st.columns(2)
         with col_save:
             save_clicked = st.form_submit_button(
@@ -633,6 +683,8 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
                             foto2=e_foto2,
                             keep_foto1=(e_foto1 is None),
                             keep_foto2=(e_foto2 is None),
+                            foto_gabungan_payload=e_foto_gabungan_payload,
+                            keep_foto_gabungan=(e_foto_gabungan_payload is None),
                         )
                         if result.get("success"):
                             load_database.clear()
@@ -850,6 +902,15 @@ if CAN_ADD and tab_tambah is not None:
                 if foto2 is not None:
                     st.caption(f"📎 {foto2.size / 1024:.0f} KB — akan dikompres otomatis sebelum diupload")
 
+            foto_gabungan_payload = None
+            if foto1 is not None and foto2 is not None:
+                merged_bytes = merge_two_images_bytes(foto1.getvalue(), foto2.getvalue())
+                st.image(
+                    merged_bytes,
+                    caption="Pratinjau Foto Gabungan (otomatis dari Foto 1 + Foto 2)",
+                )
+                foto_gabungan_payload = bytes_to_payload(merged_bytes, "gabungan.jpg", "image/jpeg")
+
             submitted = st.form_submit_button(
                 "💾 Simpan Data", use_container_width=True, type="primary"
             )
@@ -863,7 +924,8 @@ if CAN_ADD and tab_tambah is not None:
                     with st.spinner("Mengupload foto & menyimpan data..."):
                         try:
                             result = submit_new_item(
-                                lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2
+                                lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi,
+                                foto1, foto2, foto_gabungan_payload,
                             )
                             if result.get("success"):
                                 load_database.clear()
