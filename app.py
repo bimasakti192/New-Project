@@ -30,22 +30,47 @@ st.markdown(
     """
     <style>
     :root {
-        --accent: #784b92;
-        --accent-dark: #603c75;
-        --accent-soft: #f2edf7;
-        --brand-deep: #3e3863;
-        --brand-muted: #b2b2c5;
-        --text-main: #2b2b2b;
-        --text-muted: #8a8a8a;
-        --border: #eaeaea;
-        --card-bg: #ffffff;
+        --palette-n: #b2b2c5;
+        --palette-m: #3e3863;
+        --palette-d: #784b92;
+        --accent: #9a63b8;
+        --accent-dark: #784b92;
+        --accent-soft: rgba(255,255,255,0.16);
+        --brand-deep: #ffffff;
+        --brand-muted: #d8d3ea;
+        --text-main: #ffffff;
+        --text-muted: rgba(255,255,255,0.72);
+        --border: rgba(255,255,255,0.22);
+        --card-bg: rgba(255,255,255,0.08);
     }
+
+    /* Background utama: gradasi 3 warna palet (N -> M -> D) */
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"] {
+        background: linear-gradient(
+            135deg,
+            var(--palette-n) 0%,
+            var(--palette-m) 55%,
+            var(--palette-d) 100%
+        ) !important;
+        background-attachment: fixed !important;
+    }
+    [data-testid="stHeader"] { background: transparent !important; }
 
     /* Rapikan padding global supaya tidak terlalu mepet ke tepi */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
         max-width: 980px;
+    }
+
+    /* Semua teks dasar jadi putih */
+    .stMarkdown, .stCaption, p, span, label, h1, h2, h3, h4, h5, h6 {
+        color: #ffffff;
+    }
+    [data-testid="stWidgetLabel"] p {
+        color: #ffffff !important;
+        font-weight: 500;
     }
 
     /* ---------- HEADER ---------- */
@@ -62,7 +87,7 @@ st.markdown(
     .app-header .title {
         font-size: 28px;
         font-weight: 800;
-        color: var(--brand-deep);
+        color: #ffffff;
         margin: 0;
         line-height: 1.2;
     }
@@ -77,15 +102,19 @@ st.markdown(
         border-radius: 28px !important;
         border: 1px solid var(--border) !important;
         padding: 6px 16px !important;
-        background: var(--card-bg);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        background: var(--card-bg) !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.15);
         margin-bottom: 24px;
     }
     .st-key-search_bar div[data-testid="stTextInput"] input {
         border: none !important;
         box-shadow: none !important;
         background: transparent !important;
+        color: #ffffff !important;
         font-size: 15.5px;
+    }
+    .st-key-search_bar div[data-testid="stTextInput"] input::placeholder {
+        color: rgba(255,255,255,0.6) !important;
     }
     .st-key-search_bar div[data-testid="stTextInput"] > div {
         border: none !important;
@@ -108,20 +137,49 @@ st.markdown(
         color: white !important;
     }
 
-    /* ---------- TOMBOL PRIMARY (ikuti warna aksen) ---------- */
+    /* ---------- INPUT FIELD UMUM (form tambah/edit) ---------- */
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stTextArea"] textarea,
+    div[data-testid="stNumberInput"] input {
+        background: rgba(255,255,255,0.10) !important;
+        color: #ffffff !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 8px !important;
+    }
+    div[data-testid="stTextInput"] input::placeholder,
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: rgba(255,255,255,0.55) !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] {
+        background: rgba(255,255,255,0.08) !important;
+        border: 1px dashed var(--border) !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] * {
+        color: #ffffff !important;
+    }
+
+    /* ---------- TOMBOL PRIMARY & SECONDARY ---------- */
     button[kind="primary"], button[kind="primaryFormSubmit"] {
         background-color: var(--accent) !important;
         border-color: var(--accent) !important;
         border-radius: 10px !important;
         font-weight: 600 !important;
+        color: #ffffff !important;
     }
     button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
         background-color: var(--accent-dark) !important;
         border-color: var(--accent-dark) !important;
     }
     button[kind="secondary"], button[kind="secondaryFormSubmit"] {
+        background-color: rgba(255,255,255,0.10) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 10px !important;
         font-weight: 500 !important;
+        color: #ffffff !important;
+    }
+    button[kind="secondary"]:hover, button[kind="secondaryFormSubmit"]:hover {
+        background-color: rgba(255,255,255,0.2) !important;
+        color: #ffffff !important;
     }
 
     /* ---------- TABS ---------- */
@@ -130,7 +188,7 @@ st.markdown(
         border-radius: 18px;
         padding: 18px 20px 8px 20px;
         background: var(--card-bg);
-        box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
     button[data-baseweb="tab"] {
@@ -138,9 +196,13 @@ st.markdown(
         font-weight: 600;
         padding-top: 8px;
         padding-bottom: 8px;
+        color: rgba(255,255,255,0.75) !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #ffffff !important;
     }
     div[data-baseweb="tab-highlight"] {
-        background-color: var(--accent) !important;
+        background-color: #ffffff !important;
         height: 3px !important;
     }
     div[data-baseweb="tab-border"] {
@@ -156,13 +218,13 @@ st.markdown(
         border-radius: 16px !important;
         padding: 18px 20px !important;
         margin-bottom: 14px !important;
-        background: var(--card-bg);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        background: var(--card-bg) !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
     div[class*="st-key-card_"]:hover {
-        box-shadow: 0 4px 16px rgba(0,0,0,0.07);
-        border-color: #e0d3cb !important;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+        border-color: rgba(255,255,255,0.4) !important;
     }
     div[class*="st-key-card_"] img {
         border-radius: 12px !important;
@@ -174,7 +236,7 @@ st.markdown(
         width: 118px;
         height: 118px;
         border-radius: 12px;
-        background: #fafafa;
+        background: rgba(255,255,255,0.08);
         border: 1px dashed var(--border);
         display: flex;
         align-items: center;
@@ -187,13 +249,13 @@ st.markdown(
     .item-title {
         font-size: 17px;
         font-weight: 700;
-        color: var(--brand-deep);
+        color: #ffffff;
         margin-bottom: 4px;
     }
     .item-badge {
         display: inline-block;
-        background: var(--accent-soft);
-        color: var(--accent-dark);
+        background: var(--accent);
+        color: #ffffff;
         font-size: 12px;
         font-weight: 600;
         padding: 2px 10px;
@@ -202,7 +264,7 @@ st.markdown(
     }
     .item-row {
         font-size: 14px;
-        color: var(--text-main);
+        color: #ffffff;
         margin-bottom: 2px;
     }
     .item-row b {
@@ -220,17 +282,16 @@ st.markdown(
         text-align: center;
         font-weight: 700;
         font-size: 16px;
-        color: var(--brand-deep);
+        color: #ffffff;
         background: var(--card-bg);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.12);
     }
     .login-wrap {
         border: 1px solid var(--border);
         border-radius: 18px;
         padding: 36px 34px 28px 34px;
         background: var(--card-bg);
-        box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-        margin-top: 6vh;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.18);
     }
     .login-icon {
         font-size: 40px;
@@ -241,7 +302,7 @@ st.markdown(
         text-align: center;
         font-size: 22px;
         font-weight: 800;
-        color: var(--brand-deep);
+        color: #ffffff;
         margin-bottom: 2px;
     }
     .login-subtitle {
@@ -252,6 +313,9 @@ st.markdown(
     }
 
     /* ---------- SIDEBAR USER CARD ---------- */
+    [data-testid="stSidebar"] {
+        background: rgba(255,255,255,0.05) !important;
+    }
     .user-card {
         display: flex;
         align-items: center;
@@ -278,7 +342,7 @@ st.markdown(
     .user-name {
         font-weight: 700;
         font-size: 14px;
-        color: var(--text-main);
+        color: #ffffff;
         line-height: 1.3;
     }
     .user-role {
