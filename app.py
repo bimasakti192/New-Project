@@ -17,7 +17,7 @@ DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTih
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwYAY96yl2OROWECeItHTf7E_qA4jz8mWCpAre2nMseRrGE8zj7eZaTbNN6KB97itwC/exec"
 
 st.set_page_config(
-    page_title="Katalog Komponen",
+    page_title="Stock Opname",
     page_icon="🧰",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -30,9 +30,11 @@ st.markdown(
     """
     <style>
     :root {
-        --accent: #d97757;
-        --accent-dark: #c2664a;
-        --accent-soft: #fdf1ec;
+        --accent: #784b92;
+        --accent-dark: #603c75;
+        --accent-soft: #f2edf7;
+        --brand-deep: #3e3863;
+        --brand-muted: #b2b2c5;
         --text-main: #2b2b2b;
         --text-muted: #8a8a8a;
         --border: #eaeaea;
@@ -60,7 +62,7 @@ st.markdown(
     .app-header .title {
         font-size: 28px;
         font-weight: 800;
-        color: var(--text-main);
+        color: var(--brand-deep);
         margin: 0;
         line-height: 1.2;
     }
@@ -123,6 +125,14 @@ st.markdown(
     }
 
     /* ---------- TABS ---------- */
+    div[data-testid="stTabs"] {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 18px 20px 8px 20px;
+        background: var(--card-bg);
+        box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+        margin-bottom: 20px;
+    }
     button[data-baseweb="tab"] {
         font-size: 15px;
         font-weight: 600;
@@ -135,6 +145,9 @@ st.markdown(
     }
     div[data-baseweb="tab-border"] {
         background-color: var(--border) !important;
+    }
+    div[data-baseweb="tab-panel"] {
+        padding-top: 18px;
     }
 
     /* ---------- KARTU HASIL BARANG ---------- */
@@ -174,7 +187,7 @@ st.markdown(
     .item-title {
         font-size: 17px;
         font-weight: 700;
-        color: var(--text-main);
+        color: var(--brand-deep);
         margin-bottom: 4px;
     }
     .item-badge {
@@ -198,6 +211,19 @@ st.markdown(
     }
 
     /* ---------- LOGIN CARD ---------- */
+    .login-banner {
+        max-width: 640px;
+        margin: 0 auto 26px auto;
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 20px 26px;
+        text-align: center;
+        font-weight: 700;
+        font-size: 16px;
+        color: var(--brand-deep);
+        background: var(--card-bg);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    }
     .login-wrap {
         border: 1px solid var(--border);
         border-radius: 18px;
@@ -215,7 +241,7 @@ st.markdown(
         text-align: center;
         font-size: 22px;
         font-weight: 800;
-        color: var(--text-main);
+        color: var(--brand-deep);
         margin-bottom: 2px;
     }
     .login-subtitle {
@@ -291,11 +317,15 @@ def check_login(username, password):
 
 
 def show_login_form():
+    st.markdown(
+        '<div class="login-banner">Perencanaan dan Pengendalian Operasi</div>',
+        unsafe_allow_html=True,
+    )
     col_l, col_mid, col_r = st.columns([1, 1.15, 1])
     with col_mid:
         st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
         st.markdown('<div class="login-icon">🧰</div>', unsafe_allow_html=True)
-        st.markdown('<div class="login-title">Katalog Komponen</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Stock Opname</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="login-subtitle">Masuk untuk melanjutkan</div>',
             unsafe_allow_html=True,
@@ -546,7 +576,7 @@ st.markdown(
     """
     <div class="app-header">
         <div class="icon">🧰</div>
-        <div class="title">Katalog Komponen</div>
+        <div class="title">Stock Opname</div>
     </div>
     <p class="app-subtitle">Cari, telusuri, dan kelola data komponen gudang.</p>
     """,
