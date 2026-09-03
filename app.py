@@ -1,4 +1,5 @@
 import base64
+import hashlib
 import re
 from io import BytesIO
 
@@ -57,6 +58,65 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+# ==============================================================================
+# 🔐 LOGIN & ROLE
+# ==============================================================================
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def get_users():
+    """Ambil daftar user dari secrets.toml -> [[users]] (username, password_hash, role)."""
+    try:
+        return st.secrets["users"]
+    except Exception:
+        return []
+
+
+def check_login(username, password):
+    users = get_users()
+    entered_hash = hash_password(password)
+    for u in users:
+        if u.get("username") == username and u.get("password_hash") == entered_hash:
+            return u.get("role", "staff")
+    return None
+
+
+def show_login_form():
+    st.title("🔒 Login Katalog Komponen")
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
+
+        if submitted:
+            role = check_login(username, password)
+            if role:
+                st.session_state["auth_username"] = username
+                st.session_state["auth_role"] = role
+                st.rerun()
+            else:
+                st.error("Username atau password salah.")
+
+
+def show_logout_button():
+    with st.sidebar:
+        st.markdown(f"👤 **{st.session_state.get('auth_username')}**")
+        st.caption(f"Role: {st.session_state.get('auth_role')}")
+        if st.button("Logout", use_container_width=True):
+            st.session_state.pop("auth_username", None)
+            st.session_state.pop("auth_role", None)
+            st.rerun()
+
+
+if "auth_username" not in st.session_state:
+    show_login_form()
+    st.stop()
+
+show_logout_button()
+IS_ADMIN = st.session_state.get("auth_role") == "admin"
 
 
 # --- CACHE DATABASE ---
@@ -246,11 +306,15 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
 
 
 # ==============================================================================
-# 🗂️ TAB: PENCARIAN (dengan tombol Edit inline) | TAMBAH DATA
+# 🗂️ TAB: PENCARIAN (dengan Edit inline khusus admin) | TAMBAH DATA (khusus admin)
 # ==============================================================================
 st.title("Katalog Komponen")
 
-tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
+if IS_ADMIN:
+    tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
+else:
+    tab_cari = st.container()
+    tab_tambah = None
 
 try:
     df_raw, df_clean = load_database(DATABASE_URL)
@@ -277,7 +341,7 @@ photo_cols = [
 ]
 
 # ------------------------------------------------------------------------------
-# TAB 1: PENCARIAN + EDIT INLINE
+# TAB PENCARIAN + EDIT INLINE (edit hanya untuk admin)
 # ------------------------------------------------------------------------------
 with tab_cari:
     with st.container(border=True, key="search_bar"):
@@ -325,7 +389,11 @@ with tab_cari:
                 kode_val = str(row.get(col_kode, "")).strip() if col_kode else str(index)
 
                 with st.container():
-                    col_foto, col_detail, col_action = st.columns([1, 3, 0.8])
+                    if IS_ADMIN:
+                        col_foto, col_detail, col_action = st.columns([1, 3, 0.8])
+                    else:
+                        col_foto, col_detail = st.columns([1, 3.5])
+                        col_action = None
 
                     with col_foto:
                         imgs = []
@@ -363,18 +431,18 @@ with tab_cari:
                             else:
                                 st.markdown(f"**{col_clean} :** {val_display}")
 
-                    with col_action:
-                        if col_kode is not None:
-                            row_target = f"{kode_val}__{index}"
-                            if st.button("✏️ Edit", key=f"btn_edit_{index}", use_container_width=True):
-                                st.session_state["edit_target"] = (
-                                    None if st.session_state.get("edit_target") == row_target else row_target
-                                )
-                                st.rerun()
+                    if IS_ADMIN and col_action is not None:
+                        with col_action:
+                            if col_kode is not None:
+                                row_target = f"{kode_val}__{index}"
+                                if st.button("✏️ Edit", key=f"btn_edit_{index}", use_container_width=True):
+                                    st.session_state["edit_target"] = (
+                                        None if st.session_state.get("edit_target") == row_target else row_target
+                                    )
+                                    st.rerun()
 
-                    if col_kode is not None and st.session_state.get("edit_target") == f"{kode_val}__{index}":
+                    if IS_ADMIN and col_kode is not None and st.session_state.get("edit_target") == f"{kode_val}__{index}":
                         st.markdown("**Edit data barang ini:**")
-                        # ambil baris terbaru dari df_raw (bukan df_clean) untuk isi form
                         row_raw = df_raw.loc[index] if index in df_raw.index else row
                         render_edit_form(
                             row_raw,
@@ -391,45 +459,46 @@ with tab_cari:
                 st.divider()
 
 # ------------------------------------------------------------------------------
-# TAB 2: TAMBAH DATA BARU
+# TAB TAMBAH DATA BARU (khusus admin)
 # ------------------------------------------------------------------------------
-with tab_tambah:
-    st.subheader("Tambah Data Barang Baru")
-    st.caption(
-        "Data akan dikirim ke Google Apps Script, yang otomatis upload foto ke Drive "
-        "dan menulis baris baru ke spreadsheet."
-    )
+if IS_ADMIN and tab_tambah is not None:
+    with tab_tambah:
+        st.subheader("Tambah Data Barang Baru")
+        st.caption(
+            "Data akan dikirim ke Google Apps Script, yang otomatis upload foto ke Drive "
+            "dan menulis baris baru ke spreadsheet."
+        )
 
-    with st.form("form_tambah_barang", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            lokasi_rak = st.text_input("Lokasi Rak *")
-            kode_material = st.text_input("Kode Material *")
-            nama_barang = st.text_input("Nama Barang *")
-            qty = st.number_input("Qty", min_value=0, step=1)
-        with c2:
-            uom = st.text_input("UoM (PCS, BOX, dll) *")
-            deskripsi = st.text_area("Deskripsi")
-            foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="add_foto1")
-            foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="add_foto2")
+        with st.form("form_tambah_barang", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            with c1:
+                lokasi_rak = st.text_input("Lokasi Rak *")
+                kode_material = st.text_input("Kode Material *")
+                nama_barang = st.text_input("Nama Barang *")
+                qty = st.number_input("Qty", min_value=0, step=1)
+            with c2:
+                uom = st.text_input("UoM (PCS, BOX, dll) *")
+                deskripsi = st.text_area("Deskripsi")
+                foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="add_foto1")
+                foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="add_foto2")
 
-        submitted = st.form_submit_button("💾 Simpan Data", use_container_width=True)
+            submitted = st.form_submit_button("💾 Simpan Data", use_container_width=True)
 
-        if submitted:
-            if not (lokasi_rak and kode_material and nama_barang and uom):
-                st.error("Mohon lengkapi semua kolom bertanda *.")
-            elif APPS_SCRIPT_URL.startswith("ISI_URL"):
-                st.error("APPS_SCRIPT_URL belum diisi di kode.")
-            else:
-                with st.spinner("Mengupload foto & menyimpan data..."):
-                    try:
-                        result = submit_new_item(
-                            lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2
-                        )
-                        if result.get("success"):
-                            load_database.clear()
-                            st.success(result.get("message", "Data berhasil disimpan!"))
-                        else:
-                            st.error(result.get("message", "Gagal menyimpan data."))
-                    except Exception as e:
-                        st.error(f"Gagal menyimpan data: {e}")
+            if submitted:
+                if not (lokasi_rak and kode_material and nama_barang and uom):
+                    st.error("Mohon lengkapi semua kolom bertanda *.")
+                elif APPS_SCRIPT_URL.startswith("ISI_URL"):
+                    st.error("APPS_SCRIPT_URL belum diisi di kode.")
+                else:
+                    with st.spinner("Mengupload foto & menyimpan data..."):
+                        try:
+                            result = submit_new_item(
+                                lokasi_rak, kode_material, nama_barang, qty, uom, deskripsi, foto1, foto2
+                            )
+                            if result.get("success"):
+                                load_database.clear()
+                                st.success(result.get("message", "Data berhasil disimpan!"))
+                            else:
+                                st.error(result.get("message", "Gagal menyimpan data."))
+                        except Exception as e:
+                            st.error(f"Gagal menyimpan data: {e}")
