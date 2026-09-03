@@ -45,8 +45,7 @@ st.markdown(
     }
 
     /* Background utama: gradasi 3 warna palet (N -> M -> D) */
-    [data-testid="stAppViewContainer"],
-    [data-testid="stHeader"] {
+    [data-testid="stAppViewContainer"] {
         background: linear-gradient(
             135deg,
             var(--palette-n) 0%,
@@ -55,16 +54,16 @@ st.markdown(
         ) !important;
         background-attachment: fixed !important;
     }
-    [data-testid="stHeader"] { background: transparent !important; }
+    header[data-testid="stHeader"] {
+        display: none !important;
+    }
 
-    /* Rapikan padding global supaya tidak terlalu mepet ke tepi */
     .block-container {
         padding-top: 2rem;
         padding-bottom: 3rem;
         max-width: 980px;
     }
 
-    /* Semua teks dasar jadi putih */
     .stMarkdown, .stCaption, p, span, label, h1, h2, h3, h4, h5, h6 {
         color: #ffffff;
     }
@@ -73,31 +72,15 @@ st.markdown(
         font-weight: 500;
     }
 
-    /* ---------- HEADER ---------- */
-    .app-header {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        margin-bottom: 4px;
-    }
-    .app-header .icon {
+    .greeting-text {
+        text-align: center;
         font-size: 34px;
-        line-height: 1;
-    }
-    .app-header .title {
-        font-size: 28px;
-        font-weight: 800;
+        font-weight: 500;
         color: #ffffff;
-        margin: 0;
-        line-height: 1.2;
-    }
-    .app-subtitle {
-        color: var(--text-muted);
-        font-size: 14.5px;
-        margin: 0 0 22px 0;
+        margin: 8px 0 28px 0;
+        letter-spacing: -0.3px;
     }
 
-    /* ---------- SEARCH BAR (PILL) ---------- */
     .st-key-search_bar {
         border-radius: 28px !important;
         border: 1px solid var(--border) !important;
@@ -137,7 +120,6 @@ st.markdown(
         color: white !important;
     }
 
-    /* ---------- INPUT FIELD UMUM (form tambah/edit) ---------- */
     div[data-testid="stTextInput"] input,
     div[data-testid="stTextArea"] textarea,
     div[data-testid="stNumberInput"] input {
@@ -158,7 +140,6 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* ---------- TOMBOL PRIMARY & SECONDARY ---------- */
     button[kind="primary"], button[kind="primaryFormSubmit"] {
         background-color: var(--accent) !important;
         border-color: var(--accent) !important;
@@ -182,7 +163,6 @@ st.markdown(
         color: #ffffff !important;
     }
 
-    /* ---------- TABS ---------- */
     div[data-testid="stTabs"] {
         border: 1px solid var(--border);
         border-radius: 18px;
@@ -212,7 +192,6 @@ st.markdown(
         padding-top: 18px;
     }
 
-    /* ---------- KARTU HASIL BARANG ---------- */
     div[class*="st-key-card_"] {
         border: 1px solid var(--border) !important;
         border-radius: 16px !important;
@@ -272,7 +251,6 @@ st.markdown(
         font-weight: 600;
     }
 
-    /* ---------- LOGIN CARD ---------- */
     .login-banner {
         max-width: 640px;
         margin: 0 auto 26px auto;
@@ -312,7 +290,6 @@ st.markdown(
         margin-bottom: 22px;
     }
 
-    /* ---------- SIDEBAR USER CARD ---------- */
     [data-testid="stSidebar"] {
         background: rgba(255,255,255,0.05) !important;
     }
@@ -636,14 +613,9 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
 # ==============================================================================
 # 🗂️ TAB: PENCARIAN (dengan Edit inline khusus admin) | TAMBAH DATA (khusus admin)
 # ==============================================================================
+role_label = CURRENT_ROLE.capitalize() if CURRENT_ROLE else "Pengguna"
 st.markdown(
-    """
-    <div class="app-header">
-        <div class="icon">🧰</div>
-        <div class="title">Stock Opname</div>
-    </div>
-    <p class="app-subtitle">Cari, telusuri, dan kelola data komponen gudang.</p>
-    """,
+    f'<div class="greeting-text">Hi {role_label}, apa yang ingin kamu cari?</div>',
     unsafe_allow_html=True,
 )
 
@@ -825,10 +797,6 @@ with tab_cari:
 if CAN_ADD and tab_tambah is not None:
     with tab_tambah:
         st.subheader("Tambah Data Barang Baru")
-        st.caption(
-            "Data akan dikirim ke Google Apps Script, yang otomatis upload foto ke Drive "
-            "dan menulis baris baru ke spreadsheet."
-        )
 
         with st.form("form_tambah_barang", clear_on_submit=True):
             c1, c2 = st.columns(2)
