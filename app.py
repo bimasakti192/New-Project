@@ -14,7 +14,7 @@ from PIL import Image
 DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTihRlqwwhyxJSpVMW4WH15XM_rx2yLGfXCjbOn-SbEetgs5vRn8OWEFqO_ov-BgMwP/pub?output=csv"
 
 # URL Web App hasil deploy Apps Script (yang berakhiran /exec)
-APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwYAY96yl2OROWECeItHTf7E_qA4jz8mWCpAre2nMseRrGE8zj7eZaTbNN6KB97itwC/exec"
+APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxCEJ02WRuoQ3Ja-IMlc28DzUx6DoNLHTnTWty1SSVQyTkCvgZoUksylTPbTd-sOeHl/exec"
 
 st.set_page_config(
     page_title="Stock Opname",
