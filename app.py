@@ -16,24 +16,74 @@ DATABASE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTcS0mSoo1HwqTih
 # URL Web App hasil deploy Apps Script (yang berakhiran /exec)
 APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwYAY96yl2OROWECeItHTf7E_qA4jz8mWCpAre2nMseRrGE8zj7eZaTbNN6KB97itwC/exec"
 
-st.set_page_config(page_title="Katalog Komponen", layout="wide")
+st.set_page_config(
+    page_title="Katalog Komponen",
+    page_icon="🧰",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
 
-# --- CSS: SEARCH BAR STYLE (PILL / ROUNDED SEPERTI CHAT BAR) --------------
+# ==============================================================================
+# 🎨 TEMA & STYLING GLOBAL
+# ==============================================================================
 st.markdown(
     """
     <style>
+    :root {
+        --accent: #d97757;
+        --accent-dark: #c2664a;
+        --accent-soft: #fdf1ec;
+        --text-main: #2b2b2b;
+        --text-muted: #8a8a8a;
+        --border: #eaeaea;
+        --card-bg: #ffffff;
+    }
+
+    /* Rapikan padding global supaya tidak terlalu mepet ke tepi */
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 980px;
+    }
+
+    /* ---------- HEADER ---------- */
+    .app-header {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 4px;
+    }
+    .app-header .icon {
+        font-size: 34px;
+        line-height: 1;
+    }
+    .app-header .title {
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--text-main);
+        margin: 0;
+        line-height: 1.2;
+    }
+    .app-subtitle {
+        color: var(--text-muted);
+        font-size: 14.5px;
+        margin: 0 0 22px 0;
+    }
+
+    /* ---------- SEARCH BAR (PILL) ---------- */
     .st-key-search_bar {
         border-radius: 28px !important;
-        border: 1px solid #e5e5e5 !important;
-        padding: 6px 14px !important;
-        background: #ffffff;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        border: 1px solid var(--border) !important;
+        padding: 6px 16px !important;
+        background: var(--card-bg);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        margin-bottom: 24px;
     }
     .st-key-search_bar div[data-testid="stTextInput"] input {
         border: none !important;
         box-shadow: none !important;
         background: transparent !important;
-        font-size: 15px;
+        font-size: 15.5px;
     }
     .st-key-search_bar div[data-testid="stTextInput"] > div {
         border: none !important;
@@ -45,14 +95,170 @@ st.markdown(
         width: 38px;
         height: 38px;
         padding: 0 !important;
-        background-color: #d97757 !important;
+        background-color: var(--accent) !important;
         color: white !important;
         border: none !important;
-        font-size: 16px;
+        font-size: 15px;
+        transition: background-color 0.15s ease;
     }
     .st-key-search_bar .st-key-btn_reset button:hover {
-        background-color: #c2664a !important;
+        background-color: var(--accent-dark) !important;
         color: white !important;
+    }
+
+    /* ---------- TOMBOL PRIMARY (ikuti warna aksen) ---------- */
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
+        background-color: var(--accent) !important;
+        border-color: var(--accent) !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+    }
+    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
+        background-color: var(--accent-dark) !important;
+        border-color: var(--accent-dark) !important;
+    }
+    button[kind="secondary"], button[kind="secondaryFormSubmit"] {
+        border-radius: 10px !important;
+        font-weight: 500 !important;
+    }
+
+    /* ---------- TABS ---------- */
+    button[data-baseweb="tab"] {
+        font-size: 15px;
+        font-weight: 600;
+        padding-top: 8px;
+        padding-bottom: 8px;
+    }
+    div[data-baseweb="tab-highlight"] {
+        background-color: var(--accent) !important;
+        height: 3px !important;
+    }
+    div[data-baseweb="tab-border"] {
+        background-color: var(--border) !important;
+    }
+
+    /* ---------- KARTU HASIL BARANG ---------- */
+    div[class*="st-key-card_"] {
+        border: 1px solid var(--border) !important;
+        border-radius: 16px !important;
+        padding: 18px 20px !important;
+        margin-bottom: 14px !important;
+        background: var(--card-bg);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    div[class*="st-key-card_"]:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.07);
+        border-color: #e0d3cb !important;
+    }
+    div[class*="st-key-card_"] img {
+        border-radius: 12px !important;
+        object-fit: cover !important;
+        width: 118px !important;
+        height: 118px !important;
+    }
+    .photo-placeholder {
+        width: 118px;
+        height: 118px;
+        border-radius: 12px;
+        background: #fafafa;
+        border: 1px dashed var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-muted);
+        font-size: 11px;
+        text-align: center;
+        margin-bottom: 6px;
+    }
+    .item-title {
+        font-size: 17px;
+        font-weight: 700;
+        color: var(--text-main);
+        margin-bottom: 4px;
+    }
+    .item-badge {
+        display: inline-block;
+        background: var(--accent-soft);
+        color: var(--accent-dark);
+        font-size: 12px;
+        font-weight: 600;
+        padding: 2px 10px;
+        border-radius: 999px;
+        margin-bottom: 8px;
+    }
+    .item-row {
+        font-size: 14px;
+        color: var(--text-main);
+        margin-bottom: 2px;
+    }
+    .item-row b {
+        color: var(--text-muted);
+        font-weight: 600;
+    }
+
+    /* ---------- LOGIN CARD ---------- */
+    .login-wrap {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 36px 34px 28px 34px;
+        background: var(--card-bg);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+        margin-top: 6vh;
+    }
+    .login-icon {
+        font-size: 40px;
+        text-align: center;
+        margin-bottom: 4px;
+    }
+    .login-title {
+        text-align: center;
+        font-size: 22px;
+        font-weight: 800;
+        color: var(--text-main);
+        margin-bottom: 2px;
+    }
+    .login-subtitle {
+        text-align: center;
+        font-size: 13.5px;
+        color: var(--text-muted);
+        margin-bottom: 22px;
+    }
+
+    /* ---------- SIDEBAR USER CARD ---------- */
+    .user-card {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        background: var(--card-bg);
+    }
+    .user-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 15px;
+        flex-shrink: 0;
+    }
+    .user-name {
+        font-weight: 700;
+        font-size: 14px;
+        color: var(--text-main);
+        line-height: 1.3;
+    }
+    .user-role {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: capitalize;
     }
     </style>
     """,
@@ -85,26 +291,50 @@ def check_login(username, password):
 
 
 def show_login_form():
-    st.title("🔒 Login Katalog Komponen")
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login", use_container_width=True)
+    col_l, col_mid, col_r = st.columns([1, 1.15, 1])
+    with col_mid:
+        st.markdown('<div class="login-wrap">', unsafe_allow_html=True)
+        st.markdown('<div class="login-icon">🧰</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">Katalog Komponen</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="login-subtitle">Masuk untuk melanjutkan</div>',
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form"):
+            username = st.text_input("Username", placeholder="Username")
+            password = st.text_input("Password", type="password", placeholder="Password")
+            submitted = st.form_submit_button(
+                "Login", use_container_width=True, type="primary"
+            )
 
-        if submitted:
-            role = check_login(username, password)
-            if role:
-                st.session_state["auth_username"] = username
-                st.session_state["auth_role"] = role
-                st.rerun()
-            else:
-                st.error("Username atau password salah.")
+            if submitted:
+                role = check_login(username, password)
+                if role:
+                    st.session_state["auth_username"] = username
+                    st.session_state["auth_role"] = role
+                    st.rerun()
+                else:
+                    st.error("Username atau password salah.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def show_logout_button():
     with st.sidebar:
-        st.markdown(f"👤 **{st.session_state.get('auth_username')}**")
-        st.caption(f"Role: {st.session_state.get('auth_role')}")
+        username = st.session_state.get("auth_username", "")
+        role = st.session_state.get("auth_role", "")
+        initial = username[:1].upper() if username else "?"
+        st.markdown(
+            f"""
+            <div class="user-card">
+                <div class="user-avatar">{initial}</div>
+                <div>
+                    <div class="user-name">{username}</div>
+                    <div class="user-role">{role}</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         if st.button("Logout", use_container_width=True):
             st.session_state.pop("auth_username", None)
             st.session_state.pop("auth_role", None)
@@ -267,7 +497,9 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
 
         col_save, col_cancel = st.columns(2)
         with col_save:
-            save_clicked = st.form_submit_button("💾 Simpan Perubahan", use_container_width=True)
+            save_clicked = st.form_submit_button(
+                "💾 Simpan Perubahan", use_container_width=True, type="primary"
+            )
         with col_cancel:
             cancel_clicked = st.form_submit_button("Batal", use_container_width=True)
 
@@ -310,10 +542,19 @@ def render_edit_form(row, col_kode, col_lokasi, col_nama, col_qty, col_uom, col_
 # ==============================================================================
 # 🗂️ TAB: PENCARIAN (dengan Edit inline khusus admin) | TAMBAH DATA (khusus admin)
 # ==============================================================================
-st.title("Katalog Komponen")
+st.markdown(
+    """
+    <div class="app-header">
+        <div class="icon">🧰</div>
+        <div class="title">Katalog Komponen</div>
+    </div>
+    <p class="app-subtitle">Cari, telusuri, dan kelola data komponen gudang.</p>
+    """,
+    unsafe_allow_html=True,
+)
 
 if CAN_ADD:
-    tab_cari, tab_tambah = st.tabs(["🔍 Cari Barang", "➕ Tambah Data Barang"])
+    tab_cari, tab_tambah = st.tabs(["🔍  Cari Barang", "➕  Tambah Data Barang"])
 else:
     tab_cari = st.container()
     tab_tambah = None
@@ -353,7 +594,7 @@ with tab_cari:
             search_query = st.text_input(
                 "Pencarian Global",
                 key="search_input",
-                placeholder="Ketik kata kunci pencarian...",
+                placeholder="🔎  Ketik kata kunci pencarian...",
                 label_visibility="collapsed",
             )
 
@@ -368,11 +609,8 @@ with tab_cari:
 
     active_text_query = search_query.strip()
 
-    st.markdown("---")
-
     if not active_text_query:
-        st.subheader("Selamat datang!")
-        st.info("Silakan ketik kata kunci pada kolom pencarian.")
+        st.info("👋  Silakan ketik kata kunci pada kolom pencarian untuk memulai.")
     else:
         norm_query = normalize_text(active_text_query)
         mask = (
@@ -385,16 +623,22 @@ with tab_cari:
         if results_df.empty:
             st.warning("Tidak ada data barang yang sesuai dengan pencarian Anda.")
         else:
+            st.caption(f"Ditemukan **{len(results_df)}** barang")
+
             EXCLUDE_KEYWORDS = ["link", "foto", "drive", "url", "uom"]
 
             for index, row in results_df.iterrows():
                 kode_val = str(row.get(col_kode, "")).strip() if col_kode else str(index)
 
-                with st.container():
+                with st.container(border=True, key=f"card_{index}"):
                     if IS_ADMIN:
-                        col_foto, col_detail, col_action = st.columns([1, 3, 0.8])
+                        col_foto, col_detail, col_action = st.columns(
+                            [1, 3.3, 0.9], vertical_alignment="top"
+                        )
                     else:
-                        col_foto, col_detail = st.columns([1, 3.5])
+                        col_foto, col_detail = st.columns(
+                            [1, 3.8], vertical_alignment="top"
+                        )
                         col_action = None
 
                     with col_foto:
@@ -408,17 +652,34 @@ with tab_cari:
 
                         if imgs:
                             for img in imgs:
-                                st.image(img, width=130)
+                                st.image(img)
                         else:
-                            st.caption("Tanpa Foto")
+                            st.markdown(
+                                '<div class="photo-placeholder">Tanpa Foto</div>',
+                                unsafe_allow_html=True,
+                            )
 
                     with col_detail:
+                        nama_val = str(row.get(col_nama, "")).strip() if col_nama else ""
+                        if nama_val:
+                            st.markdown(
+                                f'<div class="item-title">{nama_val}</div>',
+                                unsafe_allow_html=True,
+                            )
+                        if kode_val:
+                            st.markdown(
+                                f'<span class="item-badge">{kode_val}</span>',
+                                unsafe_allow_html=True,
+                            )
+
                         for col in df_raw.columns:
                             col_clean = col.strip()
                             col_lower = col_clean.lower()
 
                             if any(kw in col_lower for kw in EXCLUDE_KEYWORDS):
                                 continue
+                            if col == col_nama:
+                                continue  # sudah ditampilkan sebagai judul
 
                             val = str(row.get(col, "")).strip()
                             val_display = val if val else "-"
@@ -429,9 +690,15 @@ with tab_cari:
                                     None,
                                 )
                                 uom_val = str(row.get(uom_col, "")).strip() if uom_col else ""
-                                st.markdown(f"**{col_clean} :** {val_display} {uom_val}".strip())
+                                st.markdown(
+                                    f'<div class="item-row"><b>{col_clean} :</b> {val_display} {uom_val}</div>'.strip(),
+                                    unsafe_allow_html=True,
+                                )
                             else:
-                                st.markdown(f"**{col_clean} :** {val_display}")
+                                st.markdown(
+                                    f'<div class="item-row"><b>{col_clean} :</b> {val_display}</div>',
+                                    unsafe_allow_html=True,
+                                )
 
                     if IS_ADMIN and col_action is not None:
                         with col_action:
@@ -458,8 +725,6 @@ with tab_cari:
                             unique_id=f"{kode_val}__{index}",
                         )
 
-                st.divider()
-
 # ------------------------------------------------------------------------------
 # TAB TAMBAH DATA BARU (khusus admin)
 # ------------------------------------------------------------------------------
@@ -484,7 +749,9 @@ if CAN_ADD and tab_tambah is not None:
                 foto1 = st.file_uploader("Foto 1", type=["png", "jpg", "jpeg"], key="add_foto1")
                 foto2 = st.file_uploader("Foto 2 (opsional)", type=["png", "jpg", "jpeg"], key="add_foto2")
 
-            submitted = st.form_submit_button("💾 Simpan Data", use_container_width=True)
+            submitted = st.form_submit_button(
+                "💾 Simpan Data", use_container_width=True, type="primary"
+            )
 
             if submitted:
                 if not (lokasi_rak and kode_material and nama_barang and uom):
